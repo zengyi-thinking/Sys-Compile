@@ -1,0 +1,6 @@
+// 基本测试：变量和常量
+int main() {
+    int a = 10;
+    float b = 3.14;
+    return 0;
+}

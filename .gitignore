@@ -1,0 +1,35 @@
+# 构建输出
+build/
+*.o
+*.exe
+*.out
+*.yy.c
+*.tab.c
+*.tab.h
+
+# Flex和Bison生成文件
+lexer.yy.c
+parser.tab.c
+parser.tab.h
+
+# 临时文件
+*.tmp
+*.log
+*.swp
+*~
+
+# IDE文件
+.vscode/
+.idea/
+*.suo
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+
+# 操作系统文件
+.DS_Store
+Thumbs.db
+
+# 备份文件
+*.bak
