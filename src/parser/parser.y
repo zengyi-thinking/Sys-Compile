@@ -90,9 +90,19 @@ ASTNode* createUnaryOp(const std::string& op, ASTNode* expr) {
 CompUnit
     : { ast_root = createNode(NODE_COMP_UNIT); }
     | CompUnit Decl
+      { ast_root->addChild(std::shared_ptr<ASTNode>($2)); }
     | CompUnit FuncDef
+      { ast_root->addChild(std::shared_ptr<ASTNode>($2)); }
     | Decl
+      {
+          ast_root = createNode(NODE_COMP_UNIT);
+          ast_root->addChild(std::shared_ptr<ASTNode>($1));
+      }
     | FuncDef
+      {
+          ast_root = createNode(NODE_COMP_UNIT);
+          ast_root->addChild(std::shared_ptr<ASTNode>($1));
+      }
     ;
 
 Decl
@@ -131,11 +141,41 @@ InitValList
 
 FuncDef
     : VOID IDENTIFIER LPAREN RPAREN Block
+      {
+          $$ = createNode(NODE_FUNC_DEF, $2);
+          free($2);
+          $$->addChild(std::shared_ptr<ASTNode>($5));
+      }
     | INT IDENTIFIER LPAREN RPAREN Block
+      {
+          $$ = createNode(NODE_FUNC_DEF, $2);
+          free($2);
+          $$->addChild(std::shared_ptr<ASTNode>($5));
+      }
     | FLOAT IDENTIFIER LPAREN RPAREN Block
+      {
+          $$ = createNode(NODE_FUNC_DEF, $2);
+          free($2);
+          $$->addChild(std::shared_ptr<ASTNode>($5));
+      }
     | VOID IDENTIFIER LPAREN FuncFParams RPAREN Block
+      {
+          $$ = createNode(NODE_FUNC_DEF, $2);
+          free($2);
+          $$->addChild(std::shared_ptr<ASTNode>($6));
+      }
     | INT IDENTIFIER LPAREN FuncFParams RPAREN Block
+      {
+          $$ = createNode(NODE_FUNC_DEF, $2);
+          free($2);
+          $$->addChild(std::shared_ptr<ASTNode>($6));
+      }
     | FLOAT IDENTIFIER LPAREN FuncFParams RPAREN Block
+      {
+          $$ = createNode(NODE_FUNC_DEF, $2);
+          free($2);
+          $$->addChild(std::shared_ptr<ASTNode>($6));
+      }
     ;
 
 FuncFParams
@@ -219,7 +259,13 @@ Stmt
     ;
 
 Exp
-    : LOrExp
+    : LVal ASSIGN Exp
+      {
+          $$ = createNode(NODE_ASSIGN);
+          $$->addChild(std::shared_ptr<ASTNode>($1));
+          $$->addChild(std::shared_ptr<ASTNode>($3));
+      }
+    | LOrExp
       { $$ = $1; }
     ;
 
@@ -231,6 +277,16 @@ ConstExp
 PrimaryExp
     : LPAREN Exp RPAREN
       { $$ = $2; }
+    | LPAREN INT RPAREN UnaryExp
+      {
+          $$ = createNode(NODE_UNARY_OP, "(int)");
+          $$->addChild(std::shared_ptr<ASTNode>($4));
+      }
+    | LPAREN FLOAT RPAREN UnaryExp
+      {
+          $$ = createNode(NODE_UNARY_OP, "(float)");
+          $$->addChild(std::shared_ptr<ASTNode>($4));
+      }
     | LVal
       { $$ = $1; }
     | INT_CONST
@@ -256,6 +312,18 @@ LVal
           $$ = createNode(NODE_INDEX);
           $$->addChild(std::shared_ptr<ASTNode>(id_node));
           $$->addChild(std::shared_ptr<ASTNode>($3));
+      }
+    | IDENTIFIER LBRACK Exp RBRACK LBRACK Exp RBRACK
+      {
+          auto id_node = createNode(NODE_IDENTIFIER, $1);
+          free($1);
+          auto index1 = createNode(NODE_INDEX);
+          index1->addChild(std::shared_ptr<ASTNode>(id_node));
+          index1->addChild(std::shared_ptr<ASTNode>($3));
+          auto index2 = createNode(NODE_INDEX);
+          index2->addChild(std::shared_ptr<ASTNode>(index1));
+          index2->addChild(std::shared_ptr<ASTNode>($6));
+          $$ = index2;
       }
     ;
 

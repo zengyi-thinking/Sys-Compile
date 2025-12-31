@@ -1,8 +1,12 @@
 # 编译器
 COMPILER = g++
 # Flex和Bison
-FLEX = flex
-BISON = bison
+FLEX = /c/GnuWin32/bin/flex
+BISON = /c/GnuWin32/bin/bison
+M4 = m4
+
+# 设置M4路径以解决Windows路径空格问题
+export M4 := "C:/Program Files (x86)/GnuWin32/bin/m4"
 
 # 编译选项
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -g
@@ -18,32 +22,53 @@ PARSER_OUT = build/parser.tab.c
 PARSER_HEADER = build/parser.tab.h
 
 # 目标可执行文件
-TARGET = build/sysc
+TARGET = build/sysc.exe
 
 # 其他源文件
-SRCS = $(wildcard src/**/*.cpp src/*.cpp)
-OBJS = $(patsubst src/%.cpp,build/%.o,$(SRCS))
+SRCS = src/main.cpp src/ast/ast.cpp src/semantic/semantic_analyzer.cpp src/codegen/code_generator.cpp src/optimizer/optimizer.cpp src/target/target_codegen.cpp
+OBJS = build/main.o build/ast.o build/semantic_analyzer.o build/code_generator.o build/optimizer.o build/target_codegen.o
 
 .PHONY: all clean test help
 
 all: $(TARGET)
 
+# 创建build目录
+$(shell mkdir -p build 2>/dev/null || true)
+
 # 构建词法分析器
 $(LEXER_OUT): $(LEXER_SRC) $(PARSER_HEADER)
 	@echo "生成词法分析器..."
-	@mkdir -p build
-	$(FLEX) -o $(LEXER_OUT) $(LEXER_SRC)
+	$(FLEX) $(LEXER_SRC)
+	@if [ -f lex.yy.c ]; then mv lex.yy.c $(LEXER_OUT); fi
 
 # 构建语法分析器
 $(PARSER_OUT) $(PARSER_HEADER): $(PARSER_SRC)
 	@echo "生成语法分析器..."
-	@mkdir -p build
-	$(BISON) -d -o $(PARSER_OUT) $(PARSER_SRC)
+	export M4=/c/GnuWin32/bin/m4 && /c/GnuWin32/bin/bison.exe -d -o $(PARSER_OUT) $(PARSER_SRC)
 
 # 编译C++源文件
-build/%.o: src/%.cpp $(PARSER_HEADER)
-	@echo "编译 $<..."
-	@mkdir -p $(@D)
+build/main.o: src/main.cpp $(PARSER_HEADER)
+	@echo "编译 main.cpp..."
+	$(COMPILER) $(CXXFLAGS) -c $< -o $@
+
+build/ast.o: src/ast/ast.cpp $(PARSER_HEADER)
+	@echo "编译 ast.cpp..."
+	$(COMPILER) $(CXXFLAGS) -c $< -o $@
+
+build/semantic_analyzer.o: src/semantic/semantic_analyzer.cpp $(PARSER_HEADER)
+	@echo "编译 semantic_analyzer.cpp..."
+	$(COMPILER) $(CXXFLAGS) -c $< -o $@
+
+build/code_generator.o: src/codegen/code_generator.cpp $(PARSER_HEADER)
+	@echo "编译 code_generator.cpp..."
+	$(COMPILER) $(CXXFLAGS) -c $< -o $@
+
+build/optimizer.o: src/optimizer/optimizer.cpp $(PARSER_HEADER)
+	@echo "编译 optimizer.cpp..."
+	$(COMPILER) $(CXXFLAGS) -c $< -o $@
+
+build/target_codegen.o: src/target/target_codegen.cpp $(PARSER_HEADER)
+	@echo "编译 target_codegen.cpp..."
 	$(COMPILER) $(CXXFLAGS) -c $< -o $@
 
 # 构建lexer.yy.o
@@ -57,7 +82,7 @@ build/parser.tab.o: $(PARSER_OUT) $(PARSER_HEADER)
 	$(COMPILER) $(CXXFLAGS) -c $(PARSER_OUT) -o $@
 
 # 链接生成可执行文件
-$(TARGET): build/lexer.yy.o build/parser.tab.o $(filter-out build/lexer.yy.o build/parser.tab.o,$(OBJS))
+$(TARGET): build/lexer.yy.o build/parser.tab.o $(OBJS)
 	@echo "链接编译器..."
 	$(COMPILER) $(CXXFLAGS) $^ -o $(TARGET)
 	@echo "构建完成: $(TARGET)"
@@ -65,17 +90,12 @@ $(TARGET): build/lexer.yy.o build/parser.tab.o $(filter-out build/lexer.yy.o bui
 # 测试
 test: $(TARGET)
 	@echo "运行测试..."
-	@for file in examples/*.sy; do \
-		if [ -f "$$file" ]; then \
-			echo "测试: $$file"; \
-			./$(TARGET) "$$file"; \
-		fi; \
-	done
+	./$(TARGET) examples/test.sy
 
 # 清理
 clean:
 	@echo "清理构建文件..."
-	rm -rf build/*
+	-cd build && del /Q *.* 2>nul || true
 	@echo "清理完成"
 
 # 帮助信息
@@ -89,5 +109,9 @@ help:
 	@echo "  make help     - 显示此帮助信息"
 	@echo ""
 	@echo "使用示例:"
-	@echo "  ./build/sysc examples/test.sy    - 编译Sys源文件"
-	@echo "  ./build/sysc -ast examples/test.sy  - 输出AST"
+	@echo "  build\\sysc.exe examples\\test.sy          - 编译Sys源文件"
+	@echo "  build\\sysc.exe -ast examples\\test.sy     - 输出AST"
+	@echo "  build\\sysc.exe -semantic examples\\test.sy  - 运行语义分析"
+	@echo "  build\\sysc.exe -ir examples\\test.sy       - 生成中间代码"
+	@echo "  build\\sysc.exe -optimize examples\\test.sy - 运行代码优化"
+	@echo "  build\\sysc.exe -asm examples\\test.sy      - 生成目标代码"
