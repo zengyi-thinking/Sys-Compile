@@ -1,3 +1,10 @@
+/**
+ * @file target_codegen.cpp
+ * @brief 目标代码生成器的实现文件
+ *
+ * 实现将中间代码转换为x86-64和RISC-V汇编代码。
+ */
+
 #include "target/target_codegen.h"
 #include <sstream>
 #include <algorithm>

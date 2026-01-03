@@ -1,3 +1,33 @@
+/**
+ * @file main.cpp
+ * @brief Sys编译器的主程序入口
+ *
+ * 本文件是Sys编译器的入口点，负责：
+ * 1. 解析命令行参数
+ * 2. 调用各个编译阶段
+ * 3. 输出编译结果
+ *
+ * ==================== 编译器阶段 ====================
+ * 1. 词法分析(Lexical Analysis): 字符流 → Token流
+ * 2. 语法分析(Syntax Analysis): Token流 → AST
+ * 3. 语义分析(Semantic Analysis): 类型检查、作用域检查
+ * 4. 中间代码生成(IR Generation): AST → 三地址码
+ * 5. 代码优化(Optimization): 优化中间代码
+ * 6. 目标代码生成(Code Generation): 中间代码 → 汇编代码
+ *
+ * ==================== 使用方法 ====================
+ * sysc [选项] <输入文件>
+ *
+ * 选项:
+ *   -lex       输出词法分析结果
+ *   -ast       输出抽象语法树
+ *   -semantic  运行语义分析
+ *   -ir        生成中间代码
+ *   -optimize  运行代码优化
+ *   -asm       生成目标代码
+ *   -o <file>  指定输出文件
+ */
+
 #include <iostream>
 #include <fstream>
 #include <string>

@@ -1,3 +1,10 @@
+/**
+ * @file optimizer.cpp
+ * @brief 代码优化器的实现文件
+ *
+ * 实现对中间代码的优化，包括常量折叠、死代码消除等。
+ */
+
 #include "optimizer/optimizer.h"
 #include <sstream>
 #include <algorithm>

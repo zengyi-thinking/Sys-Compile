@@ -1,0 +1,11 @@
+// 测试 const 常量检查
+int main() {
+    const int x = 10;
+    const float pi = 3.14;
+
+    // 正确使用 const
+    int a = x;
+    float b = pi;
+
+    return 0;
+}

@@ -1,3 +1,30 @@
+/**
+ * @file parser.y
+ * @brief Sys语言的语法分析器(Parser)定义文件
+ *
+ * 本文件使用 Bison (GNU Yacc) 定义语法分析规则。
+ * Bison 会将此文件编译为 C++ 代码 (parser.tab.c/.h)。
+ *
+ * ==================== 语法分析的作用 ====================
+ * 语法分析是编译的第二阶段，根据语法规则分析Token流的语法结构。
+ *
+ * 输入: Token流 (INT IDENTIFIER ASSIGN INT_CONST SEMICOLON ...)
+ * 输出: 抽象语法树(AST)
+ *
+ * ==================== Bison 文件结构 ====================
+ * Bison 文件分为三个部分，用 %% 分隔：
+ * 1. 声明部分 (%{ ... %}) - C代码、token声明、类型声明
+ * 2. 规则部分 (%% ... %%) - 语法规则和对应的动作
+ * 3. 用户代码部分 (%% ...) - 额外的C函数
+ *
+ * ==================== 语法规则示例 ====================
+ * Expr : Expr PLUS Term
+ *      | Term
+ *      ;
+ *
+ * 含义: Expr 可以是 "Expr + Term" 或 "Term"
+ */
+
 %{
 #include "ast/ast.h"
 #include <iostream>
@@ -140,6 +167,11 @@ std::shared_ptr<ASTNode> getSharedPtr(ASTNode* ptr) {
 
 %%
 
+// ==================== 语法规则 ====================
+
+// ============ 编译单元 ============
+// 程序的顶层结构，由多个声明和函数定义组成
+
 CompUnit
     : { ast_root = getSharedPtr(createNode(NODE_COMP_UNIT)); }
     | CompUnit Decl
@@ -158,6 +190,9 @@ CompUnit
       }
     ;
 
+// ============ 声明 ============
+// 变量和常量的声明规则
+
 Decl
     : ConstDecl
       { $$ = $1; }
@@ -168,26 +203,26 @@ Decl
 ConstDecl
     : CONST INT IDENTIFIER SEMICOLON
       {
-          $$ = createNode(NODE_DECL, "int");  // value 存储类型
+          $$ = createNode(NODE_CONST_DECL, "int");  // value 存储类型
           $$->addChild(createNode(NODE_IDENTIFIER, $3));  // children[0] 存储变量名
           free($3);
       }
     | CONST FLOAT IDENTIFIER SEMICOLON
       {
-          $$ = createNode(NODE_DECL, "float");
+          $$ = createNode(NODE_CONST_DECL, "float");
           $$->addChild(createNode(NODE_IDENTIFIER, $3));
           free($3);
       }
     | CONST INT IDENTIFIER ASSIGN ConstExp SEMICOLON
       {
-          $$ = createNode(NODE_DECL, "int");
+          $$ = createNode(NODE_CONST_DECL, "int");
           $$->addChild(createNode(NODE_IDENTIFIER, $3));
           $$->addChild($5);  // children[1] 存储初始值
           free($3);
       }
     | CONST FLOAT IDENTIFIER ASSIGN ConstExp SEMICOLON
       {
-          $$ = createNode(NODE_DECL, "float");
+          $$ = createNode(NODE_CONST_DECL, "float");
           $$->addChild(createNode(NODE_IDENTIFIER, $3));
           $$->addChild($5);
           free($3);
@@ -235,6 +270,22 @@ VarDecl
           $$->addChild($4);
           free($2);
       }
+    | INT IDENTIFIER LBRACK ConstExp RBRACK LBRACK ConstExp RBRACK SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);  // 第一维大小
+          $$->addChild($7);  // 第二维大小
+          free($2);
+      }
+    | FLOAT IDENTIFIER LBRACK ConstExp RBRACK LBRACK ConstExp RBRACK SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);  // 第一维大小
+          $$->addChild($7);  // 第二维大小
+          free($2);
+      }
     | INT IDENTIFIER LBRACK ConstExp RBRACK ASSIGN InitVal SEMICOLON
       {
           $$ = createNode(NODE_DECL, "int");
@@ -279,6 +330,9 @@ InitValList
           $$->push_back(makeSharedPtr($3));
       }
     ;
+
+// ============ 函数定义 ============
+// 函数的声明和定义规则
 
 FuncDef
     : VOID IDENTIFIER LPAREN RPAREN Block
@@ -342,7 +396,6 @@ FuncFParams
     : INT IDENTIFIER
       {
           $$ = new std::vector<std::shared_ptr<ASTNode>>();
-          // 创建参数节点，包含类型和名称
           auto param = createNode(NODE_DECL, "int");
           param->addChild(createNode(NODE_IDENTIFIER, $2));
           free($2);
@@ -361,6 +414,7 @@ FuncFParams
           $$ = new std::vector<std::shared_ptr<ASTNode>>();
           auto param = createNode(NODE_DECL, "int");
           param->addChild(createNode(NODE_IDENTIFIER, $2));
+          param->addChild(createNode(NODE_STMT, "[]"));  // 标记为数组参数
           free($2);
           $$->push_back(makeSharedPtr(param));
       }
@@ -369,6 +423,7 @@ FuncFParams
           $$ = new std::vector<std::shared_ptr<ASTNode>>();
           auto param = createNode(NODE_DECL, "float");
           param->addChild(createNode(NODE_IDENTIFIER, $2));
+          param->addChild(createNode(NODE_STMT, "[]"));  // 标记为数组参数
           free($2);
           $$->push_back(makeSharedPtr(param));
       }
@@ -393,6 +448,7 @@ FuncFParams
           $$ = $1;
           auto param = createNode(NODE_DECL, "int");
           param->addChild(createNode(NODE_IDENTIFIER, $4));
+          param->addChild(createNode(NODE_STMT, "[]"));  // 标记为数组参数
           free($4);
           $$->push_back(makeSharedPtr(param));
       }
@@ -401,10 +457,14 @@ FuncFParams
           $$ = $1;
           auto param = createNode(NODE_DECL, "float");
           param->addChild(createNode(NODE_IDENTIFIER, $4));
+          param->addChild(createNode(NODE_STMT, "[]"));  // 标记为数组参数
           free($4);
           $$->push_back(makeSharedPtr(param));
       }
     ;
+
+// ============ 代码块 ============
+// 花括号括起的语句序列
 
 Block
     : LBRACE RBRACE
@@ -438,6 +498,9 @@ BlockItem
     | Stmt
       { $$ = $1; }
     ;
+
+// ============ 语句 ============
+// 各种类型的语句规则
 
 Stmt
     : SEMICOLON
@@ -476,6 +539,9 @@ Stmt
           $$->addChild($2);
       }
     ;
+
+// ============ 表达式 ============
+// 表达式的语法规则，按运算符优先级从低到高排列
 
 Exp
     : LVal ASSIGN Exp
@@ -642,6 +708,14 @@ LOrExp
 
 %%
 
+// ==================== 用户代码区 ====================
+
+/**
+ * @brief 语法错误处理函数
+ * @param s 错误信息
+ *
+ * 当语法分析器遇到错误时，Bison会自动调用此函数。
+ */
 void yyerror(const char* s) {
     std::cerr << "语法错误: " << s << " 在第 " << yylineno << " 行" << std::endl;
 }

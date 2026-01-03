@@ -1,12 +1,17 @@
+/* Lexer.l - Sys语言的词法定义 */
+/* 使用Flex生成词法分析器 */
+
 %{
 #include "ast/ast.h"
 #include "parser.tab.h"
 #include <iostream>
 #include <vector>
 #include <string>
+#include <map>
 
 extern int yylineno;
 
+/* Token结构体 */
 struct Token {
     std::string type;
     std::string value;
@@ -15,44 +20,20 @@ struct Token {
 
 extern std::vector<Token> token_list;
 extern bool collect_tokens;
-
 int comment_start_line = 0;
 
 std::string tokenTypeToString(int token) {
     switch (token) {
-        case INT: return "KEYWORD";
-        case FLOAT: return "KEYWORD";
-        case VOID: return "KEYWORD";
-        case CONST: return "KEYWORD";
-        case IF: return "KEYWORD";
-        case ELSE: return "KEYWORD";
-        case WHILE: return "KEYWORD";
-        case BREAK: return "KEYWORD";
-        case CONTINUE: return "KEYWORD";
-        case RETURN: return "KEYWORD";
-        case AND: return "OPERATOR";
-        case OR: return "OPERATOR";
-        case NOT: return "OPERATOR";
-        case LT: return "OPERATOR";
-        case LE: return "OPERATOR";
-        case GT: return "OPERATOR";
-        case GE: return "OPERATOR";
-        case EQ: return "OPERATOR";
-        case NE: return "OPERATOR";
-        case ADD: return "OPERATOR";
-        case SUB: return "OPERATOR";
-        case MUL: return "OPERATOR";
-        case DIV: return "OPERATOR";
-        case MOD: return "OPERATOR";
-        case ASSIGN: return "OPERATOR";
-        case SEMICOLON: return "SYMBOL";
-        case COMMA: return "SYMBOL";
-        case LPAREN: return "SYMBOL";
-        case RPAREN: return "SYMBOL";
-        case LBRACK: return "SYMBOL";
-        case RBRACK: return "SYMBOL";
-        case LBRACE: return "SYMBOL";
-        case RBRACE: return "SYMBOL";
+        case INT: case FLOAT: case VOID: case CONST:
+        case IF: case ELSE: case WHILE: case BREAK: case CONTINUE: case RETURN:
+            return "KEYWORD";
+        case AND: case OR: case NOT: case LT: case LE: case GT: case GE:
+        case EQ: case NE: case ADD: case SUB: case MUL: case DIV: case MOD:
+        case ASSIGN:
+            return "OPERATOR";
+        case SEMICOLON: case COMMA: case LPAREN: case RPAREN:
+        case LBRACK: case RBRACK: case LBRACE: case RBRACE:
+            return "SYMBOL";
         case INT_CONST: return "NUMBER";
         case FLOAT_CONST: return "FLOAT";
         case IDENTIFIER: return "IDENTIFIER";
@@ -83,16 +64,11 @@ WHITESPACE  [ \t\r]+
 
 %%
 
-"//".*          { /* 单行注释 - 忽略 */ }
-
+"//".*          { }
 "/*"            { comment_start_line = yylineno; BEGIN(COMMENT); }
-
 <COMMENT>"*/"   { BEGIN(INITIAL); }
-
-<COMMENT>\n     { /* 注释中的换行符 */ }
-
-<COMMENT>.      { /* 注释内容 */ }
-
+<COMMENT>\n     { }
+<COMMENT>.      { }
 <COMMENT><<EOF>> {
     std::cerr << "错误: 未闭合的注释，始于第 " << comment_start_line << " 行" << std::endl;
     BEGIN(INITIAL);
@@ -137,7 +113,7 @@ WHITESPACE  [ \t\r]+
 "{"             { addToken(LBRACE, yytext); return LBRACE; }
 "}"             { addToken(RBRACE, yytext); return RBRACE; }
 
-{DIGIT}+        { 
+{DIGIT}+        {
     addToken(INT_CONST, yytext);
     yylval.int_val = atoi(yytext);
     return INT_CONST;
@@ -155,9 +131,8 @@ WHITESPACE  [ \t\r]+
     return IDENTIFIER;
 }
 
-{WHITESPACE}    { /* 忽略空白符 */ }
-
-\n              { /* 忽略换行符 */ }
+{WHITESPACE}    { }
+\n              { }
 
 .               {
     std::cerr << "错误: 未知字符 '" << yytext << "' 在第 " << yylineno << " 行" << std::endl;

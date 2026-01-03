@@ -1,3 +1,10 @@
+/**
+ * @file code_generator.cpp
+ * @brief 中间代码生成器的实现文件
+ *
+ * 实现将抽象语法树(AST)转换为三地址码形式的中间代码。
+ */
+
 #include "codegen/code_generator.h"
 #include <sstream>
 #include <algorithm>

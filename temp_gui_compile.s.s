@@ -9,10 +9,11 @@ _start:
     mov rax, 60
     syscall
 
-:
+int:
     push rbp
     mov rbp, rsp
-L2:
+    mov rax, rax
+    jmp .L_result_epilogue
     mov rsp, rbp
     pop rbp
     ret
