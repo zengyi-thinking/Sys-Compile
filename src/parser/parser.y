@@ -3,6 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <memory>
+#include <map>
 
 extern int yylex();
 extern int yylineno;
@@ -10,28 +11,75 @@ void yyerror(const char* s);
 
 extern FILE* yyin;
 
-ASTNode* ast_root = nullptr;
+std::shared_ptr<ASTNode> ast_root = nullptr;
+
+// 用于保持节点存活的 vector 和映射
+std::vector<std::shared_ptr<ASTNode>> node_keep_alive;
+std::map<ASTNode*, std::shared_ptr<ASTNode>> node_registry;
 
 // 辅助函数：创建AST节点
 ASTNode* createNode(NodeType type, const std::string& value = "") {
-    auto node = new ASTNode(type, value);
+    auto node = std::make_shared<ASTNode>(type, value);
     node->line_number = yylineno;
-    return node;
+    node_keep_alive.push_back(node);
+    node_registry[node.get()] = node;
+    return node.get();
 }
 
 // 辅助函数：创建二元操作节点
 ASTNode* createBinaryOp(ASTNode* left, const std::string& op, ASTNode* right) {
-    auto node = createNode(NODE_BINARY_OP, op);
-    node->addChild(std::shared_ptr<ASTNode>(left));
-    node->addChild(std::shared_ptr<ASTNode>(right));
-    return node;
+    auto node = std::make_shared<ASTNode>(NODE_BINARY_OP, op);
+    node->line_number = yylineno;
+    auto left_it = node_registry.find(left);
+    auto right_it = node_registry.find(right);
+    if (left_it != node_registry.end()) {
+        node->addChild(left_it->second);
+    }
+    if (right_it != node_registry.end()) {
+        node->addChild(right_it->second);
+    }
+    node_keep_alive.push_back(node);
+    node_registry[node.get()] = node;
+    return node.get();
 }
 
 // 辅助函数：创建一元操作节点
 ASTNode* createUnaryOp(const std::string& op, ASTNode* expr) {
-    auto node = createNode(NODE_UNARY_OP, op);
-    node->addChild(std::shared_ptr<ASTNode>(expr));
-    return node;
+    auto node = std::make_shared<ASTNode>(NODE_UNARY_OP, op);
+    node->line_number = yylineno;
+    auto it = node_registry.find(expr);
+    if (it != node_registry.end()) {
+        node->addChild(it->second);
+    }
+    node_keep_alive.push_back(node);
+    node_registry[node.get()] = node;
+    return node.get();
+}
+
+// 辅助函数：添加已注册的子节点
+void addChildToNode(ASTNode* parent, ASTNode* child) {
+    if (!parent || !child) return;
+    auto it = node_registry.find(child);
+    if (it != node_registry.end()) {
+        auto parent_it = node_registry.find(parent);
+        if (parent_it != node_registry.end()) {
+            parent_it->second->addChild(it->second);
+        }
+    }
+}
+
+// 辅助函数：创建 shared_ptr（使用空 deleter，因为节点由 node_registry 管理）
+std::shared_ptr<ASTNode> makeSharedPtr(ASTNode* ptr) {
+    return std::shared_ptr<ASTNode>(ptr, [](ASTNode*){});
+}
+
+// 辅助函数：从注册表获取 shared_ptr
+std::shared_ptr<ASTNode> getSharedPtr(ASTNode* ptr) {
+    auto it = node_registry.find(ptr);
+    if (it != node_registry.end()) {
+        return it->second;
+    }
+    return std::shared_ptr<ASTNode>();
 }
 %}
 
@@ -40,7 +88,7 @@ ASTNode* createUnaryOp(const std::string& op, ASTNode* expr) {
     float float_val;
     char* string_val;
     ASTNode* node;
-    std::vector<ASTNode*>* node_list;
+    std::vector<std::shared_ptr<ASTNode>>* node_list;
 }
 
 %token<int_val> INT_CONST
@@ -58,6 +106,8 @@ ASTNode* createUnaryOp(const std::string& op, ASTNode* expr) {
 
 %type<node> CompUnit
 %type<node> Decl
+%type<node> ConstDecl
+%type<node> VarDecl
 %type<node> FuncDef
 %type<node> Block
 %type<node_list> BlockItemList
@@ -74,6 +124,9 @@ ASTNode* createUnaryOp(const std::string& op, ASTNode* expr) {
 %type<node> LOrExp
 %type<node> ConstExp
 %type<node> LVal
+%type<node> InitVal
+%type<node_list> InitValList
+%type<node_list> FuncFParams
 %type<node_list> FuncRParams
 
 %right ASSIGN
@@ -88,105 +141,269 @@ ASTNode* createUnaryOp(const std::string& op, ASTNode* expr) {
 %%
 
 CompUnit
-    : { ast_root = createNode(NODE_COMP_UNIT); }
+    : { ast_root = getSharedPtr(createNode(NODE_COMP_UNIT)); }
     | CompUnit Decl
-      { ast_root->addChild(std::shared_ptr<ASTNode>($2)); }
+      { ast_root->addChild($2); }
     | CompUnit FuncDef
-      { ast_root->addChild(std::shared_ptr<ASTNode>($2)); }
+      { ast_root->addChild($2); }
     | Decl
       {
-          ast_root = createNode(NODE_COMP_UNIT);
-          ast_root->addChild(std::shared_ptr<ASTNode>($1));
+          ast_root = getSharedPtr(createNode(NODE_COMP_UNIT));
+          ast_root->addChild($1);
       }
     | FuncDef
       {
-          ast_root = createNode(NODE_COMP_UNIT);
-          ast_root->addChild(std::shared_ptr<ASTNode>($1));
+          ast_root = getSharedPtr(createNode(NODE_COMP_UNIT));
+          ast_root->addChild($1);
       }
     ;
 
 Decl
     : ConstDecl
+      { $$ = $1; }
     | VarDecl
+      { $$ = $1; }
     ;
 
 ConstDecl
     : CONST INT IDENTIFIER SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");  // value 存储类型
+          $$->addChild(createNode(NODE_IDENTIFIER, $3));  // children[0] 存储变量名
+          free($3);
+      }
     | CONST FLOAT IDENTIFIER SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $3));
+          free($3);
+      }
     | CONST INT IDENTIFIER ASSIGN ConstExp SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");
+          $$->addChild(createNode(NODE_IDENTIFIER, $3));
+          $$->addChild($5);  // children[1] 存储初始值
+          free($3);
+      }
     | CONST FLOAT IDENTIFIER ASSIGN ConstExp SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $3));
+          $$->addChild($5);
+          free($3);
+      }
     ;
 
 VarDecl
     : INT IDENTIFIER SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");  // value 存储类型
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));  // children[0] 存储变量名
+          free($2);
+      }
     | FLOAT IDENTIFIER SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          free($2);
+      }
     | INT IDENTIFIER ASSIGN InitVal SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);  // children[1] 存储初始值
+          free($2);
+      }
     | FLOAT IDENTIFIER ASSIGN InitVal SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);
+          free($2);
+      }
     | INT IDENTIFIER LBRACK ConstExp RBRACK SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);  // 数组大小
+          free($2);
+      }
     | FLOAT IDENTIFIER LBRACK ConstExp RBRACK SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);
+          free($2);
+      }
     | INT IDENTIFIER LBRACK ConstExp RBRACK ASSIGN InitVal SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "int");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);  // 数组大小
+          free($2);
+      }
     | FLOAT IDENTIFIER LBRACK ConstExp RBRACK ASSIGN InitVal SEMICOLON
+      {
+          $$ = createNode(NODE_DECL, "float");
+          $$->addChild(createNode(NODE_IDENTIFIER, $2));
+          $$->addChild($4);
+          free($2);
+      }
     ;
 
 InitVal
     : Exp
+      { $$ = $1; }
     | LBRACE RBRACE
+      { $$ = createNode(NODE_STMT, ""); }
     | LBRACE InitValList RBRACE
+      {
+          // 数组初始化列表，创建一个临时节点
+          $$ = createNode(NODE_STMT, "");
+          for (auto node : *$2) {
+              $$->addChild(node);
+          }
+          delete $2;
+      }
     ;
 
 InitValList
     : InitVal
+      {
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          $$->push_back(makeSharedPtr($1));
+      }
     | InitValList COMMA InitVal
+      {
+          $$ = $1;
+          $$->push_back(makeSharedPtr($3));
+      }
     ;
 
 FuncDef
     : VOID IDENTIFIER LPAREN RPAREN Block
       {
-          $$ = createNode(NODE_FUNC_DEF, $2);
+          $$ = createNode(NODE_FUNC_DEF, $2);  // value 存储函数名
+          $$->addChild(createNode(NODE_TYPE, "void"));  // children[0] 存储返回类型
+          $$->addChild($5);  // children[1] 是 Block
           free($2);
-          $$->addChild(std::shared_ptr<ASTNode>($5));
       }
     | INT IDENTIFIER LPAREN RPAREN Block
       {
           $$ = createNode(NODE_FUNC_DEF, $2);
+          $$->addChild(createNode(NODE_TYPE, "int"));
+          $$->addChild($5);
           free($2);
-          $$->addChild(std::shared_ptr<ASTNode>($5));
       }
     | FLOAT IDENTIFIER LPAREN RPAREN Block
       {
           $$ = createNode(NODE_FUNC_DEF, $2);
+          $$->addChild(createNode(NODE_TYPE, "float"));
+          $$->addChild($5);
           free($2);
-          $$->addChild(std::shared_ptr<ASTNode>($5));
       }
     | VOID IDENTIFIER LPAREN FuncFParams RPAREN Block
       {
-          $$ = createNode(NODE_FUNC_DEF, $2);
+          $$ = createNode(NODE_FUNC_DEF, $2);  // value 存储函数名
+          $$->addChild(createNode(NODE_TYPE, "void"));  // children[0] 存储返回类型
+          // 添加所有参数节点
+          for (auto param : *$4) {
+              $$->addChild(param);
+          }
+          delete $4;
+          $$->addChild($6);  // Block
           free($2);
-          $$->addChild(std::shared_ptr<ASTNode>($6));
       }
     | INT IDENTIFIER LPAREN FuncFParams RPAREN Block
       {
           $$ = createNode(NODE_FUNC_DEF, $2);
+          $$->addChild(createNode(NODE_TYPE, "int"));
+          for (auto param : *$4) {
+              $$->addChild(param);
+          }
+          delete $4;
+          $$->addChild($6);
           free($2);
-          $$->addChild(std::shared_ptr<ASTNode>($6));
       }
     | FLOAT IDENTIFIER LPAREN FuncFParams RPAREN Block
       {
           $$ = createNode(NODE_FUNC_DEF, $2);
+          $$->addChild(createNode(NODE_TYPE, "float"));
+          for (auto param : *$4) {
+              $$->addChild(param);
+          }
+          delete $4;
+          $$->addChild($6);
           free($2);
-          $$->addChild(std::shared_ptr<ASTNode>($6));
       }
     ;
 
 FuncFParams
     : INT IDENTIFIER
+      {
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          // 创建参数节点，包含类型和名称
+          auto param = createNode(NODE_DECL, "int");
+          param->addChild(createNode(NODE_IDENTIFIER, $2));
+          free($2);
+          $$->push_back(makeSharedPtr(param));
+      }
     | FLOAT IDENTIFIER
+      {
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          auto param = createNode(NODE_DECL, "float");
+          param->addChild(createNode(NODE_IDENTIFIER, $2));
+          free($2);
+          $$->push_back(makeSharedPtr(param));
+      }
     | INT IDENTIFIER LBRACK RBRACK
+      {
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          auto param = createNode(NODE_DECL, "int");
+          param->addChild(createNode(NODE_IDENTIFIER, $2));
+          free($2);
+          $$->push_back(makeSharedPtr(param));
+      }
     | FLOAT IDENTIFIER LBRACK RBRACK
+      {
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          auto param = createNode(NODE_DECL, "float");
+          param->addChild(createNode(NODE_IDENTIFIER, $2));
+          free($2);
+          $$->push_back(makeSharedPtr(param));
+      }
     | FuncFParams COMMA INT IDENTIFIER
+      {
+          $$ = $1;
+          auto param = createNode(NODE_DECL, "int");
+          param->addChild(createNode(NODE_IDENTIFIER, $4));
+          free($4);
+          $$->push_back(makeSharedPtr(param));
+      }
     | FuncFParams COMMA FLOAT IDENTIFIER
+      {
+          $$ = $1;
+          auto param = createNode(NODE_DECL, "float");
+          param->addChild(createNode(NODE_IDENTIFIER, $4));
+          free($4);
+          $$->push_back(makeSharedPtr(param));
+      }
     | FuncFParams COMMA INT IDENTIFIER LBRACK RBRACK
+      {
+          $$ = $1;
+          auto param = createNode(NODE_DECL, "int");
+          param->addChild(createNode(NODE_IDENTIFIER, $4));
+          free($4);
+          $$->push_back(makeSharedPtr(param));
+      }
     | FuncFParams COMMA FLOAT IDENTIFIER LBRACK RBRACK
+      {
+          $$ = $1;
+          auto param = createNode(NODE_DECL, "float");
+          param->addChild(createNode(NODE_IDENTIFIER, $4));
+          free($4);
+          $$->push_back(makeSharedPtr(param));
+      }
     ;
 
 Block
@@ -196,7 +413,7 @@ Block
       { 
           $$ = createNode(NODE_BLOCK);
           for (auto node : *$2) {
-              $$->addChild(std::shared_ptr<ASTNode>(node));
+              $$->addChild(node);
           }
           delete $2;
       }
@@ -205,19 +422,21 @@ Block
 BlockItemList
     : BlockItem
       {
-          $$ = new std::vector<ASTNode*>();
-          $$->push_back($1);
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          $$->push_back(makeSharedPtr($1));
       }
     | BlockItemList BlockItem
       {
           $$ = $1;
-          $$->push_back($2);
+          $$->push_back(makeSharedPtr($2));
       }
     ;
 
 BlockItem
     : Decl
+      { $$ = $1; }
     | Stmt
+      { $$ = $1; }
     ;
 
 Stmt
@@ -229,21 +448,21 @@ Stmt
     | IF LPAREN Exp RPAREN Stmt
       {
           $$ = createNode(NODE_IF);
-          $$->addChild(std::shared_ptr<ASTNode>($3));
-          $$->addChild(std::shared_ptr<ASTNode>($5));
+          $$->addChild($3);
+          $$->addChild($5);
       }
     | IF LPAREN Exp RPAREN Stmt ELSE Stmt
       {
           $$ = createNode(NODE_IF);
-          $$->addChild(std::shared_ptr<ASTNode>($3));
-          $$->addChild(std::shared_ptr<ASTNode>($5));
-          $$->addChild(std::shared_ptr<ASTNode>($7));
+          $$->addChild($3);
+          $$->addChild($5);
+          $$->addChild($7);
       }
     | WHILE LPAREN Exp RPAREN Stmt
       {
           $$ = createNode(NODE_WHILE);
-          $$->addChild(std::shared_ptr<ASTNode>($3));
-          $$->addChild(std::shared_ptr<ASTNode>($5));
+          $$->addChild($3);
+          $$->addChild($5);
       }
     | BREAK SEMICOLON
       { $$ = createNode(NODE_BREAK); }
@@ -254,7 +473,7 @@ Stmt
     | RETURN Exp SEMICOLON
       {
           $$ = createNode(NODE_RETURN);
-          $$->addChild(std::shared_ptr<ASTNode>($2));
+          $$->addChild($2);
       }
     ;
 
@@ -262,8 +481,8 @@ Exp
     : LVal ASSIGN Exp
       {
           $$ = createNode(NODE_ASSIGN);
-          $$->addChild(std::shared_ptr<ASTNode>($1));
-          $$->addChild(std::shared_ptr<ASTNode>($3));
+          $$->addChild($1);
+          $$->addChild($3);
       }
     | LOrExp
       { $$ = $1; }
@@ -280,12 +499,12 @@ PrimaryExp
     | LPAREN INT RPAREN UnaryExp
       {
           $$ = createNode(NODE_UNARY_OP, "(int)");
-          $$->addChild(std::shared_ptr<ASTNode>($4));
+          $$->addChild($4);
       }
     | LPAREN FLOAT RPAREN UnaryExp
       {
           $$ = createNode(NODE_UNARY_OP, "(float)");
-          $$->addChild(std::shared_ptr<ASTNode>($4));
+          $$->addChild($4);
       }
     | LVal
       { $$ = $1; }
@@ -310,19 +529,19 @@ LVal
           auto id_node = createNode(NODE_IDENTIFIER, $1);
           free($1);
           $$ = createNode(NODE_INDEX);
-          $$->addChild(std::shared_ptr<ASTNode>(id_node));
-          $$->addChild(std::shared_ptr<ASTNode>($3));
+          $$->addChild(id_node);
+          $$->addChild($3);
       }
     | IDENTIFIER LBRACK Exp RBRACK LBRACK Exp RBRACK
       {
           auto id_node = createNode(NODE_IDENTIFIER, $1);
           free($1);
           auto index1 = createNode(NODE_INDEX);
-          index1->addChild(std::shared_ptr<ASTNode>(id_node));
-          index1->addChild(std::shared_ptr<ASTNode>($3));
+          index1->addChild(id_node);
+          index1->addChild($3);
           auto index2 = createNode(NODE_INDEX);
-          index2->addChild(std::shared_ptr<ASTNode>(index1));
-          index2->addChild(std::shared_ptr<ASTNode>($6));
+          index2->addChild(index1);
+          index2->addChild($6);
           $$ = index2;
       }
     ;
@@ -345,7 +564,7 @@ UnaryExp
       {
           $$ = createNode(NODE_CALL, $1);
           for (auto node : *$3) {
-              $$->addChild(std::shared_ptr<ASTNode>(node));
+              $$->addChild(node);
           }
           delete $3;
           free($1);
@@ -355,13 +574,13 @@ UnaryExp
 FuncRParams
     : Exp
       {
-          $$ = new std::vector<ASTNode*>();
-          $$->push_back($1);
+          $$ = new std::vector<std::shared_ptr<ASTNode>>();
+          $$->push_back(makeSharedPtr($1));
       }
     | FuncRParams COMMA Exp
       {
           $$ = $1;
-          $$->push_back($3);
+          $$->push_back(makeSharedPtr($3));
       }
     ;
 

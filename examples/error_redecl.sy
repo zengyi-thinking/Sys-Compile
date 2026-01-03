@@ -1,0 +1,7 @@
+// 重复声明测试
+int main() {
+    int a = 10;
+    int a = 20;  // 重复声明
+
+    return 0;
+}

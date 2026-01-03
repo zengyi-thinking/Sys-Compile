@@ -1,0 +1,14 @@
+// 函数调用错误测试
+int add(int x, int y) {
+    return x + y;
+}
+
+int main() {
+    // 参数数量不匹配
+    int result = add(10);  // 应该是2个参数
+
+    // 调用不存在的函数
+    int result2 = nonexistent(5, 10);
+
+    return 0;
+}

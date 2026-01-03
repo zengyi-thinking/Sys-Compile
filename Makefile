@@ -1,12 +1,12 @@
 # 编译器
 COMPILER = g++
-# Flex和Bison
-FLEX = /c/GnuWin32/bin/flex
-BISON = /c/GnuWin32/bin/bison
-M4 = m4
+# Flex和Bison - 使用Windows路径
+FLEX = C:/GnuWin32/bin/flex.exe
+BISON = C:/GnuWin32/bin/bison.exe
+M4 = C:/GnuWin32/bin/m4.exe
 
-# 设置M4路径以解决Windows路径空格问题
-export M4 := "C:/Program Files (x86)/GnuWin32/bin/m4"
+# 设置M4路径
+export M4 := C:/GnuWin32/bin/m4.exe
 
 # 编译选项
 CXXFLAGS = -std=c++17 -Wall -Wextra -Iinclude -g
@@ -44,7 +44,7 @@ $(LEXER_OUT): $(LEXER_SRC) $(PARSER_HEADER)
 # 构建语法分析器
 $(PARSER_OUT) $(PARSER_HEADER): $(PARSER_SRC)
 	@echo "生成语法分析器..."
-	export M4=/c/GnuWin32/bin/m4 && /c/GnuWin32/bin/bison.exe -d -o $(PARSER_OUT) $(PARSER_SRC)
+	set M4=C:/GnuWin32/bin/m4.exe && $(BISON) -d -o $(PARSER_OUT) $(PARSER_SRC)
 
 # 编译C++源文件
 build/main.o: src/main.cpp $(PARSER_HEADER)

@@ -25,7 +25,8 @@ enum NodeType {
     NODE_INT_CONST,
     NODE_FLOAT_CONST,
     NODE_ARRAY,
-    NODE_INDEX
+    NODE_INDEX,
+    NODE_TYPE  // 用于存储类型信息的节点
 };
 
 enum TypeKind {
@@ -58,6 +59,12 @@ public:
 
     void addChild(std::shared_ptr<ASTNode> child) {
         children.push_back(child);
+    }
+
+    // 接受原始指针的重载（用于 parser，节点由 node_registry 管理）
+    void addChild(ASTNode* child) {
+        // 使用空 deleter，因为节点的生命周期由 node_registry 管理
+        children.push_back(std::shared_ptr<ASTNode>(child, [](ASTNode*){}));
     }
 
     void print(int indent = 0);

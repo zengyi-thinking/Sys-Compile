@@ -1,0 +1,10 @@
+// 类型错误测试
+int main() {
+    int a = 10;
+    float b = 3.14;
+
+    // 将 float 隐式赋值给 int（应该报错）
+    int c = b;
+
+    return 0;
+}

@@ -23,6 +23,7 @@ std::string nodeTypeToString(NodeType type) {
         case NODE_FLOAT_CONST: return "FloatConst";
         case NODE_ARRAY: return "Array";
         case NODE_INDEX: return "Index";
+        case NODE_TYPE: return "Type";
         default: return "Unknown";
     }
 }
@@ -31,7 +32,7 @@ void ASTNode::print(int indent) {
     std::string indent_str(indent * 2, ' ');
     std::cout << indent_str << nodeTypeToString(type);
     
-    if (!value.empty()) {
+    if (!value.empty() && value.length() < 100) {
         std::cout << ": " << value;
     }
     
@@ -42,6 +43,9 @@ void ASTNode::print(int indent) {
     std::cout << std::endl;
     
     for (auto& child : children) {
-        child->print(indent + 1);
+        if (!child) continue;
+        if (child) {
+            child->print(indent + 1);
+        }
     }
 }

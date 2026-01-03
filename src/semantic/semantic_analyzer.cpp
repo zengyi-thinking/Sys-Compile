@@ -61,10 +61,10 @@ SemanticType SemanticAnalyzer::checkNode(std::shared_ptr<ASTNode> node) {
     switch (node->type) {
         case NODE_INT_CONST:
             return SemanticType(TYPE_INT);
-        
+
         case NODE_FLOAT_CONST:
             return SemanticType(TYPE_FLOAT);
-        
+
         case NODE_IDENTIFIER: {
             std::shared_ptr<Symbol> symbol = currentScope->lookup(node->value);
             if (!symbol) {
@@ -121,7 +121,7 @@ SemanticType SemanticAnalyzer::checkNode(std::shared_ptr<ASTNode> node) {
 
 SemanticType SemanticAnalyzer::checkBinaryOp(std::shared_ptr<ASTNode> node) {
     if (node->children.size() < 2) return SemanticType(TYPE_VOID);
-    
+
     SemanticType leftType = checkNode(node->children[0]);
     SemanticType rightType = checkNode(node->children[1]);
     
@@ -206,37 +206,33 @@ SemanticType SemanticAnalyzer::checkAssignment(std::shared_ptr<ASTNode> node) {
 
 SemanticType SemanticAnalyzer::checkIf(std::shared_ptr<ASTNode> node) {
     if (node->children.size() < 2) return SemanticType(TYPE_VOID);
-    
+
     SemanticType condType = checkNode(node->children[0]);
     if (!condType.isInt()) {
         reportError("if条件需要整数类型", node->children[0]);
     }
-    
-    enterScope();
+
+    // 语句体如果是 Block，会自己创建作用域
     checkNode(node->children[1]);
-    exitScope();
-    
+
     if (node->children.size() > 2) {
-        enterScope();
         checkNode(node->children[2]);
-        exitScope();
     }
-    
+
     return SemanticType(TYPE_VOID);
 }
 
 SemanticType SemanticAnalyzer::checkWhile(std::shared_ptr<ASTNode> node) {
     if (node->children.size() < 2) return SemanticType(TYPE_VOID);
-    
+
     SemanticType condType = checkNode(node->children[0]);
     if (!condType.isInt()) {
         reportError("while条件需要整数类型", node->children[0]);
     }
-    
-    enterScope();
+
+    // 语句体如果是 Block，会自己创建作用域
     checkNode(node->children[1]);
-    exitScope();
-    
+
     return SemanticType(TYPE_VOID);
 }
 
@@ -344,86 +340,108 @@ SemanticType SemanticAnalyzer::checkTypeCast(std::shared_ptr<ASTNode> node) {
 }
 
 void SemanticAnalyzer::checkVariableDeclaration(std::shared_ptr<ASTNode> node) {
+    // 新的 AST 结构：
+    // - node->value = 类型名 ("int" 或 "float")
+    // - node->children[0] = 标识符节点 (变量名)
+    // - node->children[1] = 初始值表达式（可选）
     std::string typeName = node->value;
     TypeKind typeKind = (typeName == "float") ? TYPE_FLOAT : TYPE_INT;
-    
-    if (node->children.empty()) return;
-    
+
+    if (node->children.empty()) {
+        return;  // 错误：没有变量名
+    }
+
     std::shared_ptr<ASTNode> varNode = node->children[0];
-    
-    if (varNode->type == NODE_ARRAY) {
-        SemanticType arrayType(typeKind);
-        arrayType.kind = TYPE_ARRAY;
-        
-        for (size_t i = 0; i < varNode->children.size() - 1; i++) {
-            std::shared_ptr<ASTNode> dimNode = varNode->children[i];
-            arrayType.dimensions.push_back(std::stoi(dimNode->value));
-        }
-        
-        std::string varName = varNode->children.back()->value;
-        
-        std::shared_ptr<Symbol> symbol = std::make_shared<Symbol>(varName, arrayType);
-        if (!currentScope->addSymbol(symbol)) {
-            reportError("变量 '" + varName + "' 已在此作用域中定义", node);
-        }
-    } else {
-        std::string varName = varNode->value;
-        SemanticType varType(typeKind);
-        
-        std::shared_ptr<Symbol> symbol = std::make_shared<Symbol>(varName, varType);
-        if (!currentScope->addSymbol(symbol)) {
-            reportError("变量 '" + varName + "' 已在此作用域中定义", node);
+    std::string varName = varNode->value;
+
+    std::shared_ptr<Symbol> symbol = std::make_shared<Symbol>(varName, SemanticType(typeKind));
+    if (!currentScope->addSymbol(symbol)) {
+        reportError("变量 '" + varName + "' 已在此作用域中定义", node);
+    }
+
+    // 检查初始值表达式（如果存在）
+    if (node->children.size() > 1) {
+        SemanticType initType = checkNode(node->children[1]);
+        // 类型检查：不能将float赋值给int
+        if (typeKind == TYPE_INT && initType.kind == TYPE_FLOAT) {
+            reportError("不能将float类型赋值给int类型变量 '" + varName + "'", node);
         }
     }
 }
 
 void SemanticAnalyzer::checkFunctionDeclaration(std::shared_ptr<ASTNode> node) {
-    std::string typeName = node->value;
-    TypeKind returnType = (typeName == "float") ? TYPE_FLOAT : TYPE_INT;
-    std::string funcName = node->children[0]->value;
-    
+    // 新的 AST 结构：
+    // - node->value = 函数名
+    // - node->children[0] = 类型节点 (返回类型)
+    // - node->children[1]... = 参数或 Block
+
+    std::string funcName = node->value;
+
+    // 获取返回类型
+    TypeKind returnType = TYPE_INT;
+    if (!node->children.empty() && node->children[0]->type == NODE_TYPE) {
+        std::string returnTypeName = node->children[0]->value;
+        returnType = (returnTypeName == "float") ? TYPE_FLOAT :
+                      (returnTypeName == "void") ? TYPE_VOID : TYPE_INT;
+    }
+
     std::shared_ptr<Symbol> symbol = std::make_shared<Symbol>(funcName, SemanticType(returnType));
     symbol->isFunction = true;
-    
+
     if (!currentScope->addSymbol(symbol)) {
         reportError("函数 '" + funcName + "' 已定义", node);
         return;
     }
-    
+
+    // 创建函数作用域（包含参数和函数体）
     enterScope();
     currentFunction = node;
-    
-    if (node->children.size() > 1 && node->children[1]->type == NODE_IDENTIFIER) {
-        for (size_t i = 1; i < node->children.size() - 1; i++) {
-            std::shared_ptr<ASTNode> paramNode = node->children[i];
-            std::string paramTypeStr = paramNode->value;
-            TypeKind paramType = (paramTypeStr == "float") ? TYPE_FLOAT : TYPE_INT;
+
+    // 处理参数
+    // 无参数：children = [TYPE, BLOCK]
+    // 有参数：children = [TYPE, param1, param2, ..., BLOCK]
+    size_t paramStart = 1;
+    size_t lastChildIndex = node->children.size() - 1;
+
+    // 检查从 paramStart 到 lastChildIndex-1 的节点是否是参数
+    for (size_t i = paramStart; i < lastChildIndex; i++) {
+        std::shared_ptr<ASTNode> paramNode = node->children[i];
+
+        // 参数节点格式：DECL 类型 IDENTIFIER
+        if (paramNode->type == NODE_DECL) {
             std::string paramName = paramNode->children[0]->value;
-            
+            std::string paramTypeName = paramNode->value;
+            TypeKind paramType = (paramTypeName == "float") ? TYPE_FLOAT : TYPE_INT;
+
             SemanticType paramSemanticType(paramType);
             std::shared_ptr<Symbol> paramSymbol = std::make_shared<Symbol>(paramName, paramSemanticType);
             if (!currentScope->addSymbol(paramSymbol)) {
                 reportError("参数 '" + paramName + "' 重复定义", paramNode);
             }
-            
+
             symbol->paramNames.push_back(paramName);
             symbol->type.paramTypes.push_back(paramType);
         }
     }
-    
+
+    // 检查函数体（Block）
+    // 注意：checkBlock 会创建一个新的作用域，所以函数的局部变量会在嵌套作用域中
     std::shared_ptr<ASTNode> bodyNode = node->children.back();
     checkNode(bodyNode);
-    
+
     exitScope();
     currentFunction = nullptr;
-    
+
     functionTypes[funcName] = SemanticType(returnType);
 }
 
 void SemanticAnalyzer::checkBlock(std::shared_ptr<ASTNode> node) {
+    // Block 创建新作用域
+    enterScope();
     for (auto& child : node->children) {
         checkNode(child);
     }
+    exitScope();
 }
 
 bool SemanticAnalyzer::analyze(std::shared_ptr<ASTNode> root) {
