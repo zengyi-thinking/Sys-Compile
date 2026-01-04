@@ -123,24 +123,50 @@ void printASTTree(ASTNode* node, int indent = 0, bool isLast = true) {
     }
 }
 
+// 前向声明
+void printScopeSymbols(std::shared_ptr<Scope> scope, int level);
+
 void printSymbolTable(SemanticAnalyzer& analyzer) {
     auto scope = analyzer.getCurrentScope();
     if (!scope) return;
-    
+
+    // 递归打印所有作用域的符号表
+    printScopeSymbols(scope, scope->level);
+}
+
+void printScopeSymbols(std::shared_ptr<Scope> scope, int level) {
+    if (!scope) return;
+
     std::cout << "\n符号表 (Symbol Table):" << std::endl;
     std::cout << "+----------+----------+----------+----------+" << std::endl;
     std::cout << "| 名称      | 类型      | 作用域   | 额外信息  |" << std::endl;
     std::cout << "+----------+----------+----------+----------+" << std::endl;
-    
+
+    // 作用域名称映射
+    std::string scope_name;
+    if (level == 0) {
+        scope_name = "global";
+    } else {
+        scope_name = "level " + std::to_string(level);
+    }
+
+    // 打印当前作用域的符号
     for (const auto& [name, symbol] : scope->symbols) {
         std::string type_str = symbol->type.toString();
-        std::cout << "| " << std::left << std::setw(8) << name 
-                  << " | " << std::left << std::setw(8) << type_str 
-                  << " | " << std::left << std::setw(8) << "global"
+        std::cout << "| " << std::left << std::setw(8) << name
+                  << " | " << std::left << std::setw(8) << type_str
+                  << " | " << std::left << std::setw(8) << scope_name
                   << " | " << std::left << std::setw(8) << "-" << " |" << std::endl;
     }
-    
+
     std::cout << "+----------+----------+----------+----------+" << std::endl;
+
+    // 递归打印子作用域
+    if (!scope->children.empty()) {
+        for (auto& child : scope->children) {
+            printScopeSymbols(child, child->level);
+        }
+    }
 }
 
 int main(int argc, char* argv[]) {

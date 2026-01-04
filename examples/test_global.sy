@@ -1,0 +1,11 @@
+// 测试用例7：全局变量和全局常量
+// 测试目的：验证编译器能否正确处理全局作用域的变量和常量声明
+
+int g_var = 100;           // 全局变量
+const int g_const = 200;   // 全局常量
+
+int main() {
+    int local = g_var;      // 访问全局变量
+    int c = g_const;        // 访问全局常量
+    return 0;
+}

@@ -1,0 +1,27 @@
+// 测试用例9：逻辑运算
+// 测试目的：验证编译器能否正确处理逻辑与、逻辑或和逻辑非运算
+
+int main() {
+    int a = 5;
+    int b = 10;
+    int c = 20;
+
+    int result = 0;
+
+    // 逻辑与：两边都为真才为真
+    if (a > 0 && b > 0) {
+        result = 1;
+    }
+
+    // 逻辑或：一边为真就为真
+    if (a < 0 || c > 0) {
+        result = result + 10;
+    }
+
+    // 逻辑非：取反
+    if (!(a == 5)) {
+        result = result + 100;
+    }
+
+    return result;
+}

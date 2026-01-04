@@ -46,43 +46,50 @@ class ModernButton(tk.Canvas):
 
 
 class StageCard(tk.Frame):
-    """编译阶段卡片"""
+    """编译阶段卡片 - 自适应版本"""
     def __init__(self, parent, title, icon, color):
-        super().__init__(parent, bg="#2b2b2b", highlightthickness=0)
+        super().__init__(parent, bg="#2b2b2b", highlightthickness=0,
+                       padx=5, pady=5)
         self.color = color
         self.status = "pending"  # pending, running, completed, error
+        self.title_text = title
 
-        self.canvas = tk.Canvas(self, width=160, height=80, bg="#2b2b2b",
-                               highlightthickness=0, relief=tk.FLAT)
-        self.canvas.pack(fill=tk.BOTH, expand=True)
+        # 主容器
+        self.main_frame = tk.Frame(self, bg="#353535", relief=tk.FLAT)
+        self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # 背景
-        self.bg_rect = self.canvas.create_rectangle(0, 0, 160, 80,
-                                                  fill="#353535", outline="", tags="bg")
+        # 图标标签
+        self.icon_label = tk.Label(self.main_frame, text=icon, bg="#353535",
+                                  fg="#444", font=("Segoe UI Emoji", 16))
+        self.icon_label.pack(pady=(8, 2))
 
-        # 图标圈
-        self.icon_circle = self.canvas.create_oval(70, 10, 90, 30,
-                                                   fill="#444", outline="", tags="icon")
+        # 标题标签
+        self.title_label = tk.Label(self.main_frame, text=title, bg="#353535",
+                                   fg="#888", font=("Microsoft YaHei UI", 8))
+        self.title_label.pack(pady=(0, 5))
 
-        # 标题
-        self.canvas.create_text(80, 55, text=title, fill="#888",
-                               font=("Microsoft YaHei UI", 9), tags="title")
+        # 绑定大小变化事件
+        self.bind("<Configure>", self._on_resize)
+
+    def _on_resize(self, event):
+        """窗口大小变化时重绘"""
+        pass
 
     def set_status(self, status):
         """设置状态"""
         self.status = status
         if status == "running":
-            self.canvas.itemconfig("bg", fill="#3a3a3a")
-            self.canvas.itemconfig("icon", fill="#007acc")
+            self.main_frame.config(bg="#3a3a3a")
+            self.icon_label.config(bg="#3a3a3a", fg="#007acc")
         elif status == "completed":
-            self.canvas.itemconfig("bg", fill="#1a3a1a")
-            self.canvas.itemconfig("icon", fill="#107c10")
+            self.main_frame.config(bg="#1a3a1a")
+            self.icon_label.config(bg="#1a3a1a", fg="#107c10")
         elif status == "error":
-            self.canvas.itemconfig("bg", fill="#3a1a1a")
-            self.canvas.itemconfig("icon", fill="#d13438")
+            self.main_frame.config(bg="#3a1a1a")
+            self.icon_label.config(bg="#3a1a1a", fg="#d13438")
         else:
-            self.canvas.itemconfig("bg", fill="#353535")
-            self.canvas.itemconfig("icon", fill="#444")
+            self.main_frame.config(bg="#353535")
+            self.icon_label.config(bg="#353535", fg="#444")
 
 
 class SysCompilerGUI:
@@ -92,8 +99,25 @@ class SysCompilerGUI:
         self.root.geometry("1400x850")
         self.root.configure(bg="#1e1e1e")
 
-        # 编译器路径
-        self.compiler_path = "build/sysc.exe"
+        # 确保工作目录正确（切换到脚本所在目录）
+        import os
+        script_dir = os.path.dirname(os.path.abspath(__file__))
+        os.chdir(script_dir)
+
+        # 绑定窗口大小变化事件
+        self.root.bind('<Configure>', self.on_window_resize)
+
+        # 编译器路径 - 自动检测平台
+        import platform
+        import sys
+        if platform.system() == 'Windows':
+            # Windows使用相对路径，不带./
+            self.compiler_path = "build/sysc.exe"
+        else:
+            self.compiler_path = "build/sysc"
+
+        # 检查编译器是否存在
+        self.compiler_available = os.path.exists(self.compiler_path)
 
         # 当前文件和代码
         self.current_file = None
@@ -105,21 +129,23 @@ class SysCompilerGUI:
         # 示例文件
         self.examples = {
             "📝 基础语法": "examples/test_basic.sy",
-            "🧮 表达式": "examples/test_expr.sy",
-            "🔀 条件语句": "examples/test_if.sy",
-            "🔁 循环语句": "examples/test_while.sy",
-            "⚙️ 函数测试": "examples/test_func.sy",
-            "📊 数组测试": "examples/test_array.sy",
-            "🎯 演示程序": "examples/demo.sy",
-            "🔧 综合测试": "examples/test.sy",
             "🔄 类型转换": "examples/test_cast.sy",
             "🧱 多维数组": "examples/test_multidim.sy",
             "🔒 常量测试": "examples/test_const.sy",
             "📋 数组参数": "examples/test_array_param.sy",
+            "🔁 循环语句": "examples/test_while.sy",
+            "⚙️ 函数测试": "examples/test_func.sy",
+            "🎯 演示程序": "examples/demo.sy",
+            "🔧 综合测试": "examples/test.sy",
         }
 
         self.setup_ui()
         self.load_example("🎯 演示程序")
+
+        # 显示编译器状态
+        if not self.compiler_available:
+            self.append_output("⚠ 警告: 未找到编译器 " + self.compiler_path + "\n", "#d83b01")
+            self.append_output("请先运行 'make' 编译编译器\n", "#d83b01")
 
     def setup_ui(self):
         """设置UI"""
@@ -130,14 +156,22 @@ class SysCompilerGUI:
         main_container = tk.Frame(self.root, bg="#1e1e1e")
         main_container.pack(fill=tk.BOTH, expand=True, padx=20, pady=(10, 10))
 
+        # 创建分割器容器
+        paned_window = tk.PanedWindow(main_container, bg="#1e1e1e",
+                                     orient=tk.HORIZONTAL, sashwidth=4,
+                                     sashrelief=tk.RAISED)
+        paned_window.pack(fill=tk.BOTH, expand=True)
+
         # 左侧面板（文件列表 + 代码编辑）
-        left_panel = tk.Frame(main_container, bg="#1e1e1e")
-        left_panel.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        left_panel = tk.Frame(paned_window, bg="#1e1e1e")
+        paned_window.add(left_panel, minsize=400)
 
         # 右侧面板（编译阶段卡片 + 输出）
-        right_panel = tk.Frame(main_container, bg="#1e1e1e", width=450)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, padx=(15, 0))
-        right_panel.pack_propagate(False)
+        right_panel = tk.Frame(paned_window, bg="#1e1e1e")
+        paned_window.add(right_panel, minsize=400)
+
+        # 保存paned_window引用以便调整大小
+        self.paned_window = paned_window
 
         # 填充左侧
         self.create_left_panel(left_panel)
@@ -257,35 +291,36 @@ class SysCompilerGUI:
         tk.Label(flow_header, text="🔄 编译流程", bg="#1e1e1e", fg="#007acc",
                 font=("Microsoft YaHei UI", 11, "bold")).pack(side=tk.LEFT, pady=10)
 
-        # 编译阶段卡片网格
+        # 编译阶段卡片容器 - 使用grid布局自适应
         cards_frame = tk.Frame(parent, bg="#1e1e1e")
         cards_frame.pack(fill=tk.X, pady=(5, 15))
 
-        # 第一行
-        row1 = tk.Frame(cards_frame, bg="#1e1e1e")
-        row1.pack(fill=tk.X, pady=2)
+        # 配置grid权重，让列等宽
+        cards_frame.grid_columnconfigure(0, weight=1)
+        cards_frame.grid_columnconfigure(1, weight=1)
+        cards_frame.grid_columnconfigure(2, weight=1)
+        cards_frame.grid_rowconfigure(0, weight=1)
+        cards_frame.grid_rowconfigure(1, weight=1)
 
-        self.stage_lexical = StageCard(row1, "词法分析", "📝", "#4ec9b0")
-        self.stage_lexical.pack(side=tk.LEFT, padx=2)
+        # 第一行 - 使用grid布局
+        self.stage_lexical = StageCard(cards_frame, "词法分析", "📝", "#4ec9b0")
+        self.stage_lexical.grid(row=0, column=0, sticky="nsew", padx=2, pady=2)
 
-        self.stage_syntax = StageCard(row1, "语法分析", "🌳", "#4ec9b0")
-        self.stage_syntax.pack(side=tk.LEFT, padx=2)
+        self.stage_syntax = StageCard(cards_frame, "语法分析", "🌳", "#4ec9b0")
+        self.stage_syntax.grid(row=0, column=1, sticky="nsew", padx=2, pady=2)
 
-        self.stage_semantic = StageCard(row1, "语义分析", "✓", "#4ec9b0")
-        self.stage_semantic.pack(side=tk.LEFT, padx=2)
+        self.stage_semantic = StageCard(cards_frame, "语义分析", "✓", "#4ec9b0")
+        self.stage_semantic.grid(row=0, column=2, sticky="nsew", padx=2, pady=2)
 
         # 第二行
-        row2 = tk.Frame(cards_frame, bg="#1e1e1e")
-        row2.pack(fill=tk.X, pady=2)
+        self.stage_ir = StageCard(cards_frame, "中间代码", "📋", "#4ec9b0")
+        self.stage_ir.grid(row=1, column=0, sticky="nsew", padx=2, pady=2)
 
-        self.stage_ir = StageCard(row2, "中间代码", "📋", "#4ec9b0")
-        self.stage_ir.pack(side=tk.LEFT, padx=2)
+        self.stage_optimize = StageCard(cards_frame, "代码优化", "⚡", "#4ec9b0")
+        self.stage_optimize.grid(row=1, column=1, sticky="nsew", padx=2, pady=2)
 
-        self.stage_optimize = StageCard(row2, "代码优化", "⚡", "#4ec9b0")
-        self.stage_optimize.pack(side=tk.LEFT, padx=2)
-
-        self.stage_target = StageCard(row2, "目标代码", "🎯", "#4ec9b0")
-        self.stage_target.pack(side=tk.LEFT, padx=2)
+        self.stage_target = StageCard(cards_frame, "目标代码", "🎯", "#4ec9b0")
+        self.stage_target.grid(row=1, column=2, sticky="nsew", padx=2, pady=2)
 
         # 输出区域
         output_frame = tk.Frame(parent, bg="#1e1e1e")
@@ -452,31 +487,58 @@ class SysCompilerGUI:
         self.compile_output.see(tk.END)
         self.compile_output.tag_config(color, foreground=color)
 
+    def on_window_resize(self, event):
+        """窗口大小变化时的处理"""
+        # 只处理主窗口的大小变化
+        if event.widget == self.root:
+            # 确保编辑器和输出区域能够自适应
+            pass
+
     def run_compiler_stage(self, stage_name, args):
         """运行编译器单个阶段"""
+        # 检查编译器是否可用
+        if not self.compiler_available:
+            return f"\n错误: 编译器不可用，请先运行 'make' 编译编译器\n", False
+
         try:
             result = subprocess.run(
                 [self.compiler_path] + args,
                 capture_output=True,
                 text=True,
-                timeout=10,
+                timeout=30,
                 encoding='utf-8',
                 errors='ignore'
             )
-            return result.stdout + result.stderr, result.returncode == 0
+            output = result.stdout + result.stderr
+            success = result.returncode == 0
+
+            # 如果输出为空，返回提示信息
+            if not output.strip():
+                output = f"(无输出)\n"
+
+            return output, success
         except subprocess.TimeoutExpired:
-            return f"\n错误: {stage_name} 超时\n", False
+            return f"\n错误: {stage_name} 超时（超过30秒）\n", False
+        except FileNotFoundError:
+            self.compiler_available = False
+            return f"\n错误: 找不到编译器 '{self.compiler_path}'\n请先运行 'make' 编译编译器\n", False
         except Exception as e:
             return f"\n错误: {stage_name} - {str(e)}\n", False
 
     def compile_all(self):
         """执行完整编译"""
+        # 检查编译器是否可用
+        if not self.compiler_available:
+            messagebox.showerror("错误", "编译器不可用！\n\n请先在项目目录下运行 'make' 命令编译编译器。")
+            return
+
         code = self.code_editor.get(1.0, tk.END).strip()
         if not code:
             messagebox.showwarning("警告", "请先输入或选择代码")
             return
 
         if self.is_compiling:
+            messagebox.showinfo("提示", "编译正在进行中，请稍候...")
             return
 
         self.is_compiling = True
@@ -487,10 +549,20 @@ class SysCompilerGUI:
         self.ast_output.delete(1.0, tk.END)
         self.asm_output.delete(1.0, tk.END)
 
+        # 重置所有阶段状态
+        for stage in [self.stage_lexical, self.stage_syntax, self.stage_semantic,
+                      self.stage_ir, self.stage_optimize, self.stage_target]:
+            stage.set_status("pending")
+
         # 保存临时文件
         temp_file = "temp_gui_compile.sy"
-        with open(temp_file, 'w', encoding='utf-8') as f:
-            f.write(code)
+        try:
+            with open(temp_file, 'w', encoding='utf-8') as f:
+                f.write(code)
+        except Exception as e:
+            messagebox.showerror("错误", f"无法保存临时文件: {e}")
+            self.is_compiling = False
+            return
 
         def run_compilation():
             stages = [
@@ -503,11 +575,14 @@ class SysCompilerGUI:
             ]
 
             all_success = True
+            error_occurred = False
 
-            for stage_name, args, stage_widget in stages:
+            for idx, (stage_name, args, stage_widget) in enumerate(stages):
+                # 设置状态为运行中
                 self.root.after(0, lambda s=stage_widget: s.set_status("running"))
                 self.root.after(0, lambda n=stage_name: self.append_output(f"\n▶ {n}...\n", "#007acc"))
 
+                # 运行编译器阶段
                 output, success = self.run_compiler_stage(stage_name, args)
 
                 if success:
@@ -517,24 +592,37 @@ class SysCompilerGUI:
                     self.root.after(0, lambda s=stage_widget: s.set_status("error"))
                     self.root.after(0, lambda n=stage_name: self.append_output(f"✗ {n} 失败\n", "#d13438"))
                     all_success = False
+                    error_occurred = True
 
                 # 将输出分配到对应标签页
                 self.root.after(0, self.distribute_output, stage_name, output)
+
+                # 如果出错，询问是否继续
+                if not success and idx < len(stages) - 1:
+                    time.sleep(0.5)
+                    # 继续执行其他阶段
+
                 time.sleep(0.3)  # 添加小延迟让动画更流畅
 
+            # 最终状态
             self.root.after(0, lambda: self.append_output("\n" + "="*50 + "\n", "#888"))
             if all_success:
                 self.root.after(0, lambda: self.append_output("✓ 编译完成!\n", "#107c10"))
-            else:
+            elif error_occurred:
                 self.root.after(0, lambda: self.append_output("⚠ 编译完成，但有错误\n", "#d83b01"))
 
             self.root.after(0, lambda: setattr(self, 'is_compiling', False))
 
             # 清理临时文件
-            for ext in ['.sy', '.s', '.o']:
-                f = temp_file.replace('.sy', ext)
-                if os.path.exists(f):
-                    os.remove(f)
+            try:
+                if os.path.exists(temp_file):
+                    os.remove(temp_file)
+                # 清理可能生成的汇编文件
+                asm_file = temp_file.replace('.sy', '.s')
+                if os.path.exists(asm_file):
+                    os.remove(asm_file)
+            except:
+                pass
 
         # 在新线程中运行编译
         thread = threading.Thread(target=run_compilation, daemon=True)
@@ -542,22 +630,204 @@ class SysCompilerGUI:
 
     def distribute_output(self, stage_name, output):
         """将输出分配到对应的标签页"""
-        if not output:
+        if not output or output.strip() == "(无输出)":
             return
 
+        # 转换格式以匹配设计报告模板
         if stage_name == "词法分析":
-            # 解析并格式化Token
+            self.format_lexical_output(output)
+        elif stage_name == "语法分析":
+            self.format_syntax_output(output)
+        elif stage_name == "语义分析":
+            self.format_semantic_output(output)
+        elif stage_name == "中间代码":
+            self.format_ir_output(output)
+        elif stage_name == "代码优化":
+            self.format_optimize_output(output)
+        elif stage_name == "目标代码":
+            self.format_asm_output(output)
+
+        # 同时也填充到专门的标签页
+        if stage_name == "词法分析":
             self.display_tokens(output)
         elif stage_name == "语法分析":
             self.ast_output.delete(1.0, tk.END)
-            self.ast_output.insert(1.0, output)
-        elif stage_name == "语义分析":
-            self.compile_output.insert(tk.END, "\n" + output)
+            self.extract_section(output, "抽象语法树", self.ast_output)
         elif stage_name == "目标代码":
-            # 提取汇编代码
             self.extract_assembly(output)
-        else:
-            self.compile_output.insert(tk.END, "\n" + output)
+
+    def format_lexical_output(self, output):
+        """格式化词法分析输出，匹配设计报告格式"""
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "词法分析器将源代码分解成Token序列：\n\n", "#4ec9b0")
+
+        # 解析Token表格并转换为设计报告格式
+        lines = output.split('\n')
+        token_sequence = []
+
+        for line in lines:
+            if line.startswith('|') and not line.startswith('|+'):
+                parts = [p.strip() for p in line.split('|')]
+                if len(parts) >= 3 and parts[1] not in ['Token 类型', '---']:
+                    token_type = parts[1]
+                    token_value = parts[2]
+                    line_num = parts[3] if len(parts) > 3 else "1"
+
+                    # 转换Token类型名称
+                    type_mapping = {
+                        'KEYWORD': f'KEYWORD_{token_value.upper()}',
+                        'IDENTIFIER': f'IDENTIFIER({token_value})',
+                        'NUMBER': f'NUMBER({token_value})',
+                        'FLOAT': f'FLOAT({token_value})',
+                        'OPERATOR': f'OPERATOR_{token_value}',
+                        'SYMBOL': f'SYMBOL_{token_value}',
+                    }
+
+                    if token_type in type_mapping:
+                        formatted_token = type_mapping[token_type]
+                    else:
+                        formatted_token = f'{token_type}({token_value})'
+
+                    token_sequence.append(formatted_token)
+
+        # 每行显示3个Token
+        for i in range(0, len(token_sequence), 3):
+            line_tokens = token_sequence[i:i+3]
+            formatted_line = '  '.join(line_tokens)
+            self.compile_output.insert(tk.END, formatted_line + "\n", "#cccccc")
+
+        self.compile_output.insert(tk.END, "\n", "#888")
+
+    def format_syntax_output(self, output):
+        """格式化语法分析输出"""
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "语法分析过程（AST）：\n\n", "#4ec9b0")
+
+        # 提取AST部分
+        lines = output.split('\n')
+        in_ast = False
+
+        for line in lines:
+            if '抽象语法树' in line:
+                in_ast = True
+                continue
+            if in_ast and line.startswith('==='):
+                break
+            if in_ast and line.strip():
+                self.compile_output.insert(tk.END, line + "\n", "#007acc")
+
+        self.compile_output.insert(tk.END, "\n", "#888")
+
+    def format_semantic_output(self, output):
+        """格式化语义分析输出，匹配设计报告格式"""
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "语义分析结果：\n\n", "#4ec9b0")
+
+        self.compile_output.insert(tk.END, "符号表内容：\n", "#4ec9b0")
+
+        # 提取符号表
+        lines = output.split('\n')
+        in_table = False
+        table_lines = []
+
+        for line in lines:
+            if line.startswith('+') or line.startswith('|') or line.startswith('─'):
+                if not in_table:
+                    in_table = True
+                table_lines.append(line)
+            elif in_table and '语义检查通过' in line:
+                # 符号表结束
+                in_table = False
+                break
+
+        # 显示符号表
+        for line in table_lines:
+            if line.strip():
+                self.compile_output.insert(tk.END, line + "\n", "#888")
+
+        # 显示语义检查结果
+        for line in lines:
+            if '[OK]' in line or '语义检查通过' in line:
+                self.compile_output.insert(tk.END, line + "\n", "#107c10")
+
+        self.compile_output.insert(tk.END, "\n", "#888")
+
+    def format_ir_output(self, output):
+        """格式化中间代码输出"""
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "中间代码（TAC）：\n\n", "#4ec9b0")
+
+        # 提取TAC代码
+        lines = output.split('\n')
+        in_tac = False
+
+        for line in lines:
+            if '中间代码' in line:
+                in_tac = True
+                continue
+            if in_tac and (line.startswith('===') or line.startswith('4.')):
+                break
+            if in_tac and line.strip():
+                self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+        self.compile_output.insert(tk.END, "\n", "#888")
+
+    def format_optimize_output(self, output):
+        """格式化代码优化输出"""
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "代码优化：\n\n", "#4ec9b0")
+
+        lines = output.split('\n')
+        in_optimize = False
+
+        for line in lines:
+            if '代码优化' in line:
+                in_optimize = True
+                continue
+            if in_optimize and (line.startswith('===') or line.startswith('6.')):
+                break
+            if in_optimize and line.strip():
+                self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+        self.compile_output.insert(tk.END, "\n", "#888")
+
+    def format_asm_output(self, output):
+        """格式化汇编代码输出"""
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "最终编译输出（x86-64汇编）：\n\n", "#4ec9b0")
+
+        # 提取汇编代码部分
+        lines = output.split('\n')
+        in_asm = False
+
+        for line in lines:
+            if '目标代码' in line or '汇编' in line:
+                in_asm = True
+                continue
+            if in_asm and ('编译完成' in line or '目标代码已保存' in line):
+                break
+            if in_asm and line.strip():
+                self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+        self.compile_output.insert(tk.END, "\n", "#888")
+
+    def extract_section(self, output, section_name, target_widget):
+        """从输出中提取特定章节"""
+        lines = output.split('\n')
+        in_section = False
+        section_content = []
+
+        for line in lines:
+            if section_name in line:
+                in_section = True
+                continue
+            if in_section:
+                if line.startswith('===') or line.startswith('━'):
+                    break
+                section_content.append(line)
+
+        if section_content:
+            target_widget.insert(1.0, '\n'.join(section_content))
 
     def display_tokens(self, output):
         """显示Token"""
@@ -569,23 +839,66 @@ class SysCompilerGUI:
         token_count = 0
 
         for line in lines:
+            # 去除首尾空白
+            original_line = line
             line = line.strip()
-            if not line or line.startswith('=') or line.startswith('错误'):
+
+            # 跳过空行、分隔线、标题行
+            if not line:
+                continue
+            if line.startswith('=') or line.startswith('-') or line.startswith('+'):
+                continue
+            if 'Token 类型' in line or '内容' in line or '行号' in line:
+                continue
+            if '词法分析' in line or '目标' in line or '识别' in line:
+                continue
+            if '总计' in line:
+                # 提取总数信息
+                if '个Token' in line:
+                    try:
+                        count_str = line.split('总计')[1].split('个')[0].strip()
+                        if count_str.isdigit():
+                            token_count = int(count_str)
+                    except:
+                        pass
+                continue
+            if '错误' in line:
+                # 显示错误信息
+                self.token_output.insert(tk.END, line + "\n", "line")
                 continue
 
-            # 尝试解析token行
-            parts = line.split()
-            if len(parts) >= 2:
-                if parts[0] in ['KEYWORD', 'OPERATOR', 'SYMBOL', 'NUMBER', 'FLOAT',
-                                'IDENTIFIER', 'UNKNOWN']:
+            # 尝试解析表格格式: | KEYWORD | int | 1 |
+            if line.startswith('|'):
+                parts = [p.strip() for p in line.split('|')]
+                # 去掉首尾空元素
+                parts = [p for p in parts if p]
+
+                if len(parts) >= 2:
                     token_type = parts[0]
                     token_value = parts[1] if len(parts) > 1 else ""
-                    line_num = parts[2] if len(parts) > 2 else "-"
+                    line_num = parts[2] if len(parts) > 2 else "1"
 
-                    self.token_output.insert(tk.END, f"{token_type:<12} ", "type")
-                    self.token_output.insert(tk.END, f"{token_value:<20} ", "value")
-                    self.token_output.insert(tk.END, f"{line_num:<6}\n", "line")
-                    token_count += 1
+                    # 过滤掉非token行
+                    if token_type and token_type not in ['Token 类型', '---']:
+                        self.token_output.insert(tk.END, f"{token_type:<12} ", "type")
+                        self.token_output.insert(tk.END, f"{token_value:<20} ", "value")
+                        self.token_output.insert(tk.END, f"{line_num:<6}\n", "line")
+                        token_count += 1
+
+            # 尝试解析简单格式: KEYWORD int 1
+            else:
+                parts = line.split()
+                if len(parts) >= 2:
+                    if parts[0] in ['KEYWORD', 'OPERATOR', 'SYMBOL', 'NUMBER', 'FLOAT',
+                                    'IDENTIFIER', 'UNKNOWN']:
+                        token_type = parts[0]
+                        token_value = parts[1] if len(parts) > 1 else ""
+                        line_num = parts[2] if len(parts) > 2 else "1"
+
+                        self.token_output.insert(tk.END, f"{token_type:<12} ", "type")
+                        self.token_output.insert(tk.END, f"{token_value:<20} ", "value")
+                        self.token_output.insert(tk.END, f"{line_num:<6}\n", "line")
+                        token_count += 1
 
         self.token_output.insert(tk.END, "\n", "header")
         self.token_output.insert(tk.END, f"总计: {token_count} 个Token\n", "header")
@@ -595,14 +908,26 @@ class SysCompilerGUI:
         self.asm_output.delete(1.0, tk.END)
         lines = output.split('\n')
         in_asm = False
+        asm_lines = []
 
         for line in lines:
-            if '汇编' in line or 'Assembly' in line or '.section' in line:
+            # 检测汇编代码开始
+            if '汇编' in line or 'Assembly' in line or '.section' in line or 'global main' in line:
                 in_asm = True
+
+            # 检测汇编代码结束
             if in_asm:
-                self.asm_output.insert(tk.END, line + '\n')
-                if line.strip().startswith('编译完成'):
+                if '编译完成' in line or '目标代码已保存' in line:
                     break
+                # 跳过非汇编行
+                if not line.strip() or line.startswith('===') or line.startswith('━') or '目标代码' in line:
+                    continue
+                asm_lines.append(line)
+
+        if asm_lines:
+            self.asm_output.insert(1.0, '\n'.join(asm_lines))
+        else:
+            self.asm_output.insert(1.0, "(未生成汇编代码)\n")
 
 
 def main():

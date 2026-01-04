@@ -151,6 +151,7 @@ public:
     int level;                                              ///< 作用域层级
     std::map<std::string, std::shared_ptr<Symbol>> symbols; ///< 符号表(名称->符号)
     std::shared_ptr<Scope> parent;                          ///< 父作用域(用于向上查找)
+    std::vector<std::shared_ptr<Scope>> children;           ///< 子作用域列表
 
     /**
      * @brief 构造函数

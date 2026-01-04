@@ -27,7 +27,11 @@ SemanticAnalyzer::~SemanticAnalyzer() {
 
 void SemanticAnalyzer::enterScope() {
     scopeLevel++;
-    currentScope = std::make_shared<Scope>(scopeLevel, currentScope);
+    auto newScope = std::make_shared<Scope>(scopeLevel, currentScope);
+    if (currentScope) {
+        currentScope->children.push_back(newScope);
+    }
+    currentScope = newScope;
 }
 
 void SemanticAnalyzer::exitScope() {
