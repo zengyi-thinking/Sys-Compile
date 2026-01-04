@@ -6,6 +6,7 @@
  */
 
 #include "codegen/code_generator.h"
+#include "ast/ast.h"
 #include <sstream>
 #include <algorithm>
 #include <set>
@@ -74,22 +75,22 @@ std::string Function::toString() const {
         oss << params[i];
     }
     oss << ")" << std::endl;
-    
+
     std::shared_ptr<BasicBlock> block = entryBlock;
     std::set<std::shared_ptr<BasicBlock>> visited;
     std::vector<std::shared_ptr<BasicBlock>> queue;
-    
+
     if (block) {
         queue.push_back(block);
         while (!queue.empty()) {
             block = queue.back();
             queue.pop_back();
-            
+
             if (visited.find(block) != visited.end()) continue;
             visited.insert(block);
-            
+
             oss << block->toString();
-            
+
             if (block->trueBranch && visited.find(block->trueBranch) == visited.end()) {
                 queue.push_back(block->trueBranch);
             }
@@ -101,7 +102,7 @@ std::string Function::toString() const {
             }
         }
     }
-    
+
     return oss.str();
 }
 
@@ -130,30 +131,30 @@ void CodeGenerator::setBlock(std::shared_ptr<BasicBlock> block) {
 }
 
 void CodeGenerator::emit(std::shared_ptr<Instruction> inst) {
-    if (currentBlock) {
+    if (inst && currentBlock) {
         currentBlock->addInstruction(inst);
     }
 }
 
 std::string CodeGenerator::generateExpr(std::shared_ptr<ASTNode> node) {
     if (!node) return "";
-    
+
     switch (node->type) {
         case NODE_INT_CONST:
             return node->value;
-        
+
         case NODE_FLOAT_CONST:
             return node->value;
-        
+
         case NODE_IDENTIFIER:
             return node->value;
-        
+
         case NODE_BINARY_OP: {
             std::string op = node->value;
             std::string left = generateExpr(node->children[0]);
             std::string right = generateExpr(node->children[1]);
             std::string result = newTemp();
-            
+
             OpCode opcode;
             if (op == "+") opcode = OpCode::ADD;
             else if (op == "-") opcode = OpCode::SUB;
@@ -169,7 +170,7 @@ std::string CodeGenerator::generateExpr(std::shared_ptr<ASTNode> node) {
             else if (op == ">") opcode = OpCode::GT;
             else if (op == ">=") opcode = OpCode::GE;
             else opcode = OpCode::ADD;
-            
+
             emit(std::make_shared<Instruction>(opcode, result, left, right));
             return result;
         }
@@ -246,20 +247,20 @@ void CodeGenerator::generateBlock(std::shared_ptr<ASTNode> node) {
 
 void CodeGenerator::generateIf(std::shared_ptr<ASTNode> node) {
     if (node->children.size() < 2) return;
-    
+
     std::string cond = generateExpr(node->children[0]);
     std::string trueLabel = newLabel();
     std::string falseLabel = newLabel();
     std::string endLabel = newLabel();
-    
-    emit(std::make_shared<Instruction>(OpCode::JZ, cond, falseLabel));
-    
+
+    emit(std::make_shared<Instruction>(OpCode::JZ, "", cond, falseLabel));
+
     std::shared_ptr<BasicBlock> trueBlock = newBasicBlock(trueLabel);
     trueBlock->nextBlock = currentBlock->nextBlock;
     setBlock(trueBlock);
     generateStmt(node->children[1]);
     emit(std::make_shared<Instruction>(OpCode::JUMP, endLabel));
-    
+
     if (node->children.size() > 2) {
         std::shared_ptr<BasicBlock> falseBlock = newBasicBlock(falseLabel);
         falseBlock->nextBlock = trueBlock->nextBlock;
@@ -269,27 +270,34 @@ void CodeGenerator::generateIf(std::shared_ptr<ASTNode> node) {
     } else {
         emit(std::make_shared<Instruction>(OpCode::LABEL, falseLabel, true));
     }
-    
+
     emit(std::make_shared<Instruction>(OpCode::LABEL, endLabel, true));
 }
 
 void CodeGenerator::generateWhile(std::shared_ptr<ASTNode> node) {
     if (node->children.size() < 2) return;
-    
+
     std::string testLabel = newLabel();
     std::string bodyLabel = newLabel();
     std::string endLabel = newLabel();
-    
+
+    // 跳到测试
     emit(std::make_shared<Instruction>(OpCode::JUMP, testLabel));
+
+    // 循环体标签
     emit(std::make_shared<Instruction>(OpCode::LABEL, bodyLabel, true));
-    
-    setBlock(newBasicBlock());
+
+    // 生成循环体
     generateStmt(node->children[1]);
-    
+
+    // 测试标签
     emit(std::make_shared<Instruction>(OpCode::LABEL, testLabel, true));
+
+    // 条件判断
     std::string cond = generateExpr(node->children[0]);
-    emit(std::make_shared<Instruction>(OpCode::JNZ, cond, bodyLabel));
-    
+    emit(std::make_shared<Instruction>(OpCode::JNZ, "", cond, bodyLabel));
+
+    // 结束标签
     emit(std::make_shared<Instruction>(OpCode::LABEL, endLabel, true));
 }
 
@@ -335,42 +343,58 @@ std::string CodeGenerator::generateArrayAccess(std::shared_ptr<ASTNode> node) {
 }
 
 void CodeGenerator::generateDecl(std::shared_ptr<ASTNode> node) {
-    if (node->children.empty()) return;
-    
+    if (node->children.empty()) {
+        return;
+    }
+
+    // DECL节点：node->value = 类型, children[0] = IDENTIFIER, children[1] = 初始值
     auto varNode = node->children[0];
-    if (varNode->children.size() > 1) {
-        std::string initValue = generateExpr(varNode->children[1]);
-        std::string varName = varNode->children[0]->value;
+    std::string varName = varNode->value;
+
+    // 如果有初始值，生成赋值指令
+    // children[1] 包含初始值表达式（如果存在）
+    if (node->children.size() > 1) {
+        std::string initValue = generateExpr(node->children[1]);
         emit(std::make_shared<Instruction>(OpCode::ASSIGN, varName, initValue, ""));
     }
 }
 
 void CodeGenerator::generateFunction(std::shared_ptr<ASTNode> node) {
     if (node->children.empty()) return;
-    
-    std::string funcName = node->children[0]->value;
-    std::string typeName = node->value;
-    
+
+    // node->value = 函数名
+    std::string funcName = node->value;
+    std::string typeName = node->children[0]->value;  // 返回类型
+
     currentFunction = std::make_shared<Function>(funcName);
     currentFunction->returnType = typeName;
     functions[funcName] = currentFunction;
-    
+
     auto entryBlock = newBasicBlock(funcName);
     currentFunction->entryBlock = entryBlock;
     setBlock(entryBlock);
-    
-    if (node->children.size() > 1) {
+
+    // 处理参数和函数体
+    // children[0] = 类型
+    // children[1...n-1] = 参数或Block
+    // children[n] = Block
+
+    if (node->children.size() > 2) {
+        // 有参数：遍历参数节点
         for (size_t i = 1; i < node->children.size() - 1; i++) {
             auto paramNode = node->children[i];
-            if (paramNode->type == NODE_IDENTIFIER) {
-                currentFunction->params.push_back(paramNode->children[0]->value);
+            if (paramNode->type == NODE_DECL) {
+                // 参数节点格式：DECL 类型 IDENTIFIER
+                std::string paramName = paramNode->children[0]->value;
+                currentFunction->params.push_back(paramName);
             }
         }
     }
-    
+
+    // 函数体是最后一个子节点
     auto bodyNode = node->children.back();
     generateStmt(bodyNode);
-    
+
     currentFunction = nullptr;
 }
 

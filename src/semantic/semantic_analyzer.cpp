@@ -554,9 +554,12 @@ void SemanticAnalyzer::checkFunctionDeclaration(std::shared_ptr<ASTNode> node) {
     }
 
     // 检查函数体（Block）
-    // 注意：checkBlock 会创建一个新的作用域，所以函数的局部变量会在嵌套作用域中
+    // 注意：这里直接处理Block，不调用enterScope
+    // 因为函数体和参数已经在同一个作用域中了
     std::shared_ptr<ASTNode> bodyNode = node->children.back();
-    checkNode(bodyNode);
+    for (auto& child : bodyNode->children) {
+        checkNode(child);
+    }
 
     exitScope();
     currentFunction = nullptr;

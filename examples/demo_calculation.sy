@@ -1,0 +1,7 @@
+int main() {
+    int a = 10;
+    float b = 3.14;
+    float c = a + b;    // c = 13.14
+    int d = (int)b;     // d = 3
+    return c;           // 返回 13.14
+}

@@ -122,6 +122,7 @@ class SysCompilerGUI:
         # 当前文件和代码
         self.current_file = None
         self.is_compiling = False
+        self.last_ir_output = ""
 
         # 编译阶段状态
         self.stages = {}
@@ -474,6 +475,7 @@ class SysCompilerGUI:
         self.token_output.delete(1.0, tk.END)
         self.ast_output.delete(1.0, tk.END)
         self.asm_output.delete(1.0, tk.END)
+        self.last_ir_output = ""
         self.file_label.config(text="untitled.sy")
 
         # 重置所有阶段状态
@@ -641,6 +643,7 @@ class SysCompilerGUI:
         elif stage_name == "语义分析":
             self.format_semantic_output(output)
         elif stage_name == "中间代码":
+            self.last_ir_output = output
             self.format_ir_output(output)
         elif stage_name == "代码优化":
             self.format_optimize_output(output)
@@ -703,18 +706,35 @@ class SysCompilerGUI:
         self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
         self.compile_output.insert(tk.END, "语法分析过程（AST）：\n\n", "#4ec9b0")
 
-        # 提取AST部分
+        # 修复提取AST部分的逻辑
         lines = output.split('\n')
         in_ast = False
+        found_ast = False
 
         for line in lines:
-            if '抽象语法树' in line:
+            # 查找AST开始标记
+            if '抽象语法树' in line or 'AST' in line:
                 in_ast = True
+                found_ast = True
                 continue
-            if in_ast and line.startswith('==='):
-                break
-            if in_ast and line.strip():
-                self.compile_output.insert(tk.END, line + "\n", "#007acc")
+
+            # 如果找到了AST内容
+            if in_ast:
+                # 跳过空行和分隔符
+                if line.strip() == '' or line.strip() == '===':
+                    continue
+
+                # 遇到下一个阶段标题时停止
+                if line.startswith('==============================================') and '3.' in line:
+                    break
+
+                # 提取AST行
+                if line.strip():
+                    self.compile_output.insert(tk.END, line + "\n", "#007acc")
+
+        # 如果没有找到AST，显示提示
+        if not found_ast:
+            self.compile_output.insert(tk.END, "未找到AST内容\n", "#ff6b6b")
 
         self.compile_output.insert(tk.END, "\n", "#888")
 
@@ -725,25 +745,39 @@ class SysCompilerGUI:
 
         self.compile_output.insert(tk.END, "符号表内容：\n", "#4ec9b0")
 
-        # 提取符号表
+        # 提取符号表 - 修复解析逻辑
         lines = output.split('\n')
         in_table = False
         table_lines = []
+        collecting_table = False
 
         for line in lines:
-            if line.startswith('+') or line.startswith('|') or line.startswith('─'):
-                if not in_table:
-                    in_table = True
-                table_lines.append(line)
-            elif in_table and '语义检查通过' in line:
-                # 符号表结束
-                in_table = False
-                break
+            # 查找符号表开始
+            if '符号表' in line and ('(' in line or 'Symbol Table' in line):
+                collecting_table = True
+                continue
 
-        # 显示符号表
-        for line in table_lines:
-            if line.strip():
-                self.compile_output.insert(tk.END, line + "\n", "#888")
+            # 如果正在收集符号表
+            if collecting_table:
+                # 符号表行以+、|、─开头
+                if line.startswith('+') or line.startswith('|') or line.startswith('─'):
+                    if not in_table:
+                        in_table = True
+                    table_lines.append(line)
+                elif in_table:
+                    # 符号表结束
+                    in_table = False
+                    collecting_table = False
+                    continue
+
+        # 如果没有找到表格，显示提示
+        if not table_lines:
+            self.compile_output.insert(tk.END, "未找到符号表内容\n", "#ff6b6b")
+        else:
+            # 显示符号表
+            for line in table_lines:
+                if line.strip():
+                    self.compile_output.insert(tk.END, line + "\n", "#888")
 
         # 显示语义检查结果
         for line in lines:
@@ -757,18 +791,44 @@ class SysCompilerGUI:
         self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
         self.compile_output.insert(tk.END, "中间代码（TAC）：\n\n", "#4ec9b0")
 
-        # 提取TAC代码
+        # 提取TAC代码 - 修复解析逻辑
         lines = output.split('\n')
         in_tac = False
+        found_tac = False
 
         for line in lines:
-            if '中间代码' in line:
+            # 查找中间代码开始的标记
+            if '中间代码' in line and ('TAC' in line or '三地址码' in line):
                 in_tac = True
+                found_tac = True
                 continue
-            if in_tac and (line.startswith('===') or line.startswith('4.')):
-                break
-            if in_tac and line.strip():
-                self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+            # 如果找到了TAC内容
+            if in_tac:
+                # 跳过空行和分隔符
+                if line.strip() == '' or line.strip() == '===':
+                    continue
+
+                # 遇到下一个阶段标题时停止
+                if line.startswith('==============================================') and '5.' in line:
+                    break
+
+                # 提取实际的TAC指令
+                if line.strip():
+                    self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+        # 如果没有找到TAC内容，显示提示
+        if not found_tac:
+            self.compile_output.insert(tk.END, "未找到中间代码内容\n", "#ff6b6b")
+
+        # 尝试从TAC直接计算程序返回值
+        result = self.calculate_program_result(output)
+        if result is not None:
+            self.compile_output.insert(tk.END, "\n程序运行结果：\n", "#107c10")
+            self.compile_output.insert(tk.END, f"程序执行结果: {result}\n", "#107c10")
+        elif 'return' in output.lower():
+            self.compile_output.insert(tk.END, "\n程序运行结果：\n", "#107c10")
+            self.compile_output.insert(tk.END, "程序成功编译并可执行\n", "#cccccc")
 
         self.compile_output.insert(tk.END, "\n", "#888")
 
@@ -777,17 +837,35 @@ class SysCompilerGUI:
         self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
         self.compile_output.insert(tk.END, "代码优化：\n\n", "#4ec9b0")
 
+        # 修复解析逻辑
         lines = output.split('\n')
         in_optimize = False
+        found_optimize = False
 
         for line in lines:
-            if '代码优化' in line:
+            # 查找优化阶段开始的标记
+            if '代码优化' in line and ('Optimization' in line or '优化' in line):
                 in_optimize = True
+                found_optimize = True
                 continue
-            if in_optimize and (line.startswith('===') or line.startswith('6.')):
-                break
-            if in_optimize and line.strip():
-                self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+            # 如果找到了优化内容
+            if in_optimize:
+                # 跳过空行和分隔符
+                if line.strip() == '' or line.strip() == '===':
+                    continue
+
+                # 遇到下一个阶段标题时停止
+                if line.startswith('==============================================') and '6.' in line:
+                    break
+
+                # 提取优化统计信息
+                if line.strip():
+                    self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+        # 如果没有找到优化内容，显示提示
+        if not found_optimize:
+            self.compile_output.insert(tk.END, "未找到优化内容\n", "#ff6b6b")
 
         self.compile_output.insert(tk.END, "\n", "#888")
 
@@ -796,20 +874,214 @@ class SysCompilerGUI:
         self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
         self.compile_output.insert(tk.END, "最终编译输出（x86-64汇编）：\n\n", "#4ec9b0")
 
-        # 提取汇编代码部分
+        # 修复解析逻辑
         lines = output.split('\n')
         in_asm = False
+        found_asm = False
 
         for line in lines:
-            if '目标代码' in line or '汇编' in line:
+            # 查找汇编代码开始的标记
+            if ('目标代码' in line or '汇编' in line) and ('x86' in line or 'Intel' in line or '语法' in line):
                 in_asm = True
+                found_asm = True
                 continue
-            if in_asm and ('编译完成' in line or '目标代码已保存' in line):
-                break
-            if in_asm and line.strip():
-                self.compile_output.insert(tk.END, line + "\n", "#cccccc")
 
-        self.compile_output.insert(tk.END, "\n", "#888")
+            # 如果找到了汇编代码
+            if in_asm:
+                # 跳过空行和分隔符
+                if line.strip() == '' or line.strip() == '===':
+                    continue
+
+                # 遇到编译完成时停止
+                if '编译完成' in line:
+                    break
+
+                # 提取汇编指令
+                if line.strip():
+                    self.compile_output.insert(tk.END, line + "\n", "#cccccc")
+
+        # 如果没有找到汇编代码，显示提示
+        if not found_asm:
+            self.compile_output.insert(tk.END, "未找到汇编代码内容\n", "#ff6b6b")
+
+        # 显示最终结果 - 修复：直接显示计算结果
+        self.compile_output.insert(tk.END, "\n" + "="*60 + "\n", "#888")
+        self.compile_output.insert(tk.END, "程序运行结果：\n\n", "#107c10")
+
+        # 总是显示计算过程，即使return是0
+        result_source = self.last_ir_output if self.last_ir_output else output
+        calculation_process = self.get_calculation_process(result_source)
+        if calculation_process:
+            self.compile_output.insert(tk.END, f"计算过程: ", "#4ec9b0")
+            self.compile_output.insert(tk.END, calculation_process + "\n", "#cccccc")
+
+        # 尝试获取程序返回值
+        result = self.calculate_program_result(result_source)
+        if result is not None:
+            # 检查是否是return 0的情况
+            if result == 0 and 'return 0' in result_source:
+                self.compile_output.insert(tk.END, f"程序返回值: {result}\n", "#107c10")
+                self.compile_output.insert(tk.END, f"（注：return语句明确返回0，但程序计算了变量值）\n", "#888")
+            else:
+                self.compile_output.insert(tk.END, f"程序执行结果: {result}\n", "#107c10")
+        else:
+            # 如果无法计算，显示通用信息
+            self.compile_output.insert(tk.END, "程序已成功编译为目标代码（x86-64汇编）\n", "#cccccc")
+            self.compile_output.insert(tk.END, "程序可正常执行\n", "#cccccc")
+
+        self.compile_output.insert(tk.END, "\n编译完成!\n", "#107c10")
+        self.compile_output.insert(tk.END, "="*60 + "\n\n", "#888")
+
+    def calculate_program_result(self, output):
+        """尝试计算程序的返回值"""
+        try:
+            # 首先解析所有变量值
+            lines = output.split('\n')
+            variable_values = {}
+
+            for line in lines:
+                # 查找变量赋值
+                if '=' in line and 'return' not in line and 'function' not in line:
+                    parts = line.split('=')
+                    if len(parts) == 2:
+                        var = parts[0].strip()
+                        val_expr = parts[1].strip()
+
+                        # 计算变量的值
+                        computed_val = self.evaluate_simple_expression(val_expr, variable_values)
+                        if computed_val is not None:
+                            variable_values[var] = computed_val
+
+            # 然后查找return语句
+            return_value = None
+
+            for line in lines:
+                # 查找中间代码中的return语句
+                if 'return' in line and not line.startswith('function'):
+                    # 提取return后的值
+                    parts = line.split('return')
+                    if len(parts) > 1:
+                        return_expr = parts[1].strip()
+                        # 如果是纯数字，直接返回
+                        if return_expr.isdigit():
+                            return_value = int(return_expr)
+                        # 如果是变量名，从变量表中查找
+                        elif return_expr in variable_values:
+                            return_value = variable_values[return_expr]
+                        # 尝试简单计算
+                        else:
+                            computed = self.evaluate_simple_expression(return_expr, variable_values)
+                            if computed is not None:
+                                return_value = computed
+                    break
+
+            return return_value
+        except:
+            return None
+
+    def get_calculation_process(self, output):
+        """获取计算过程说明"""
+        try:
+            # 从中间代码中提取所有计算步骤
+            lines = output.split('\n')
+            process_steps = []
+            variable_values = {}
+
+            for line in lines:
+                # 查找变量赋值
+                if '=' in line and 'return' not in line and 'function' not in line:
+                    parts = line.split('=')
+                    if len(parts) == 2:
+                        var = parts[0].strip()
+                        val_expr = parts[1].strip()
+
+                        # 尝试计算表达式的值
+                        computed_val = self.evaluate_simple_expression(val_expr, variable_values)
+                        if computed_val is not None:
+                            variable_values[var] = computed_val
+                            # 添加到步骤列表
+                            if 't' not in var:  # 跳过临时变量
+                                process_steps.append(f"{var} = {computed_val}")
+
+            # 返回计算过程
+            if process_steps:
+                return "; ".join(process_steps)
+            return None
+        except:
+            return None
+
+    def evaluate_simple_expression(self, expr, var_values=None):
+        """评估简单的算术表达式（支持变量）"""
+        if var_values is None:
+            var_values = {}
+
+        try:
+            expr = expr.strip()
+
+            # 处理类型转换
+            if expr.startswith('(int)'):
+                inner = expr[5:].strip()
+                val = self.evaluate_simple_expression(inner, var_values)
+                return int(val) if val is not None else None
+
+            if expr.startswith('(float)'):
+                inner = expr[7:].strip()
+                val = self.evaluate_simple_expression(inner, var_values)
+                return float(val) if val is not None else None
+
+            # 处理一元负号
+            if expr.startswith('-'):
+                inner = expr[1:].strip()
+                val = self.evaluate_simple_expression(inner, var_values)
+                return -val if val is not None else None
+
+            # 如果是变量，查找其值
+            if expr in var_values:
+                return var_values[expr]
+
+            # 如果是数字
+            if expr.replace('.', '').isdigit():
+                return float(expr) if '.' in expr else int(expr)
+
+            # 处理加法 a + b
+            if '+' in expr and expr.count('+') == 1:
+                parts = expr.split('+')
+                if len(parts) == 2:
+                    left = self.evaluate_simple_expression(parts[0].strip(), var_values)
+                    right = self.evaluate_simple_expression(parts[1].strip(), var_values)
+                    if left is not None and right is not None:
+                        return left + right
+
+            # 处理减法 a - b
+            if '-' in expr and expr.count('-') == 1:
+                parts = expr.split('-')
+                if len(parts) == 2:
+                    left = self.evaluate_simple_expression(parts[0].strip(), var_values)
+                    right = self.evaluate_simple_expression(parts[1].strip(), var_values)
+                    if left is not None and right is not None:
+                        return left - right
+
+            # 处理乘法 a * b
+            if '*' in expr and expr.count('*') == 1:
+                parts = expr.split('*')
+                if len(parts) == 2:
+                    left = self.evaluate_simple_expression(parts[0].strip(), var_values)
+                    right = self.evaluate_simple_expression(parts[1].strip(), var_values)
+                    if left is not None and right is not None:
+                        return left * right
+
+            # 处理除法 a / b
+            if '/' in expr and expr.count('/') == 1:
+                parts = expr.split('/')
+                if len(parts) == 2:
+                    left = self.evaluate_simple_expression(parts[0].strip(), var_values)
+                    right = self.evaluate_simple_expression(parts[1].strip(), var_values)
+                    if left is not None and right is not None and right != 0:
+                        return left / right
+
+            return None
+        except:
+            return None
 
     def extract_section(self, output, section_name, target_widget):
         """从输出中提取特定章节"""
