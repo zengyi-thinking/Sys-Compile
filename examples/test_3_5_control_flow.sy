@@ -1,0 +1,16 @@
+//3.5 测试用例5：控制流测试
+//测试目的：验证编译器能否正确处理if-else、while循环和break/continue语句。
+int main() {
+    int sum = 0;
+    int i = 0;
+
+    while (i < 10) {
+If(i==5){
+  Break;
+}
+        sum = sum + i;
+        i = i + 1;
+    }
+
+    return sum;
+}

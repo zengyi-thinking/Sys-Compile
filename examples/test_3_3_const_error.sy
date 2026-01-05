@@ -1,0 +1,15 @@
+// 测试用例3-3：const常量测试（错误示例）
+// 测试目的：验证编译器能否正确检测const常量的修改错误
+int main() {
+    const int x = 10;
+    const float pi = 3.14;
+
+    // 正确使用
+    int a = x;
+    float b = pi;
+
+    // 错误：尝试修改常量
+    x = 20;
+
+    return 0;
+}

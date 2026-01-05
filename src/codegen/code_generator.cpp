@@ -249,28 +249,24 @@ void CodeGenerator::generateIf(std::shared_ptr<ASTNode> node) {
     if (node->children.size() < 2) return;
 
     std::string cond = generateExpr(node->children[0]);
-    std::string trueLabel = newLabel();
     std::string falseLabel = newLabel();
     std::string endLabel = newLabel();
 
     emit(std::make_shared<Instruction>(OpCode::JZ, "", cond, falseLabel));
 
-    std::shared_ptr<BasicBlock> trueBlock = newBasicBlock(trueLabel);
-    trueBlock->nextBlock = currentBlock->nextBlock;
-    setBlock(trueBlock);
+    // 生成then分支
     generateStmt(node->children[1]);
-    emit(std::make_shared<Instruction>(OpCode::JUMP, endLabel));
+    emit(std::make_shared<Instruction>(OpCode::JUMP, "", endLabel, ""));
 
+    // 标记false分支开始
+    emit(std::make_shared<Instruction>(OpCode::LABEL, falseLabel, true));
+
+    // 生成else分支（如果存在）
     if (node->children.size() > 2) {
-        std::shared_ptr<BasicBlock> falseBlock = newBasicBlock(falseLabel);
-        falseBlock->nextBlock = trueBlock->nextBlock;
-        setBlock(falseBlock);
         generateStmt(node->children[2]);
-        emit(std::make_shared<Instruction>(OpCode::JUMP, endLabel));
-    } else {
-        emit(std::make_shared<Instruction>(OpCode::LABEL, falseLabel, true));
     }
 
+    // 标记结束
     emit(std::make_shared<Instruction>(OpCode::LABEL, endLabel, true));
 }
 
@@ -282,7 +278,7 @@ void CodeGenerator::generateWhile(std::shared_ptr<ASTNode> node) {
     std::string endLabel = newLabel();
 
     // 跳到测试
-    emit(std::make_shared<Instruction>(OpCode::JUMP, testLabel));
+    emit(std::make_shared<Instruction>(OpCode::JUMP, "", testLabel, ""));
 
     // 循环体标签
     emit(std::make_shared<Instruction>(OpCode::LABEL, bodyLabel, true));

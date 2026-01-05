@@ -1,7 +1,0 @@
-int main() {
-    int a = 10;
-    float b = 3.14;
-    float c = a + b;
-    int d = (int)b;
-    return c;  // 返回计算结果
-}

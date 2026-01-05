@@ -1,6 +1,5 @@
-// 测试用例8：continue语句
+// 测试用例3-8：continue语句
 // 测试目的：验证编译器能否正确处理continue语句
-
 int main() {
     int sum = 0;
     int i = 0;

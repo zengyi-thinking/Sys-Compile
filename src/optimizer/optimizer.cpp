@@ -138,20 +138,27 @@ bool Optimizer::constantFoldBlock(std::shared_ptr<BasicBlock> block) {
 bool Optimizer::eliminateDeadCode(std::shared_ptr<BasicBlock> block) {
     std::vector<std::shared_ptr<Instruction>> newInstructions;
     bool changed = false;
-    
+
     liveVariables.clear();
-    
+
     for (auto it = block->instructions.rbegin(); it != block->instructions.rend(); ++it) {
         auto inst = *it;
-        
+
+        // 不要删除赋值给用户变量（非t开头的变量）的指令
+        // 这些变量可能在后续被使用（如return或打印）
         if (inst->op == OpCode::ASSIGN && !inst->result.empty()) {
-            if (liveVariables.find(inst->result) == liveVariables.end()) {
-                deadCodeEliminations++;
-                changed = true;
-                continue;
+            if (inst->result[0] == 't') {
+                // 临时变量，检查是否被使用
+                if (liveVariables.find(inst->result) == liveVariables.end()) {
+                    deadCodeEliminations++;
+                    changed = true;
+                    continue;  // 删除未使用的临时变量
+                }
             }
+            // 用户变量保留（即使当前不在liveVariables中）
         }
-        
+
+        // 追踪活跃变量（用于临时变量的死代码消除）
         if (!inst->arg1.empty()) {
             auto it1 = constantPropagation.find(inst->arg1);
             if (it1 != constantPropagation.end()) {
@@ -161,7 +168,7 @@ bool Optimizer::eliminateDeadCode(std::shared_ptr<BasicBlock> block) {
                 liveVariables.insert(inst->arg1);
             }
         }
-        
+
         if (!inst->arg2.empty()) {
             auto it2 = constantPropagation.find(inst->arg2);
             if (it2 != constantPropagation.end()) {
@@ -171,15 +178,15 @@ bool Optimizer::eliminateDeadCode(std::shared_ptr<BasicBlock> block) {
                 liveVariables.insert(inst->arg2);
             }
         }
-        
+
         newInstructions.push_back(inst);
     }
-    
+
     if (changed) {
         std::reverse(newInstructions.begin(), newInstructions.end());
         block->instructions = newInstructions;
     }
-    
+
     return changed;
 }
 

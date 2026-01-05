@@ -1,7 +1,0 @@
-// 未声明变量测试
-int main() {
-    int a = 10;
-    // 使用了未声明的变量
-    int b = unknown_var + 5;
-    return 0;
-}

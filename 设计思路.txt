@@ -1,0 +1,465 @@
+  一、题目需求分析
+
+  1.1 题目要求
+
+  设计一个 Sys 语言编译器，将 Sys 语言源代码编译成 x86-64 汇编代码
+
+  1.2 Sys语言特性（需要支持的功能）
+
+  ┌─────────────────────────────────────────────────────────────┐
+  │                    Sys 语言特性清单                          │
+  ├─────────────────────────────────────────────────────────────┤
+  │  数据类型:                                                   │
+  │    ✓ int (32位整数)                                         │
+  │    ✓ float (32位浮点)                                       │
+  │    ✓ void (无返回值)                                        │
+  │    ✓ 多维数组 (按行优先存储)                                 │
+  │    ✓ const 常量                                             │
+  ├─────────────────────────────────────────────────────────────┤
+  │  程序结构:                                                   │
+  │    ✓ 必须有且仅有一个 main 函数                              │
+  │    ✓ 支持全局变量/常量声明                                   │
+  │    ✓ 支持多函数定义                                          │
+  ├─────────────────────────────────────────────────────────────┤
+  │  控制语句:                                                   │
+  │    ✓ if-else 条件分支                                       │
+  │    ✓ while 循环                                             │
+  │    ✓ break / continue                                       │
+  │    ✓ return                                                 │
+  ├─────────────────────────────────────────────────────────────┤
+  │  表达式:                                                     │
+  │    ✓ 算术: +, -, *, /, %                                    │
+  │    ✓ 关系: >, <, >=, <=, ==, !=                             │
+  │    ✓ 逻辑: &&, ||, !                                        │
+  │    ✓ 赋值: =                                                │
+  ├─────────────────────────────────────────────────────────────┤
+  │  函数:                                                       │
+  │    ✓ 有参/无参函数                                          │
+  │    ✓ int/float 参数 (值传递)                                │
+  │    ✓ 数组参数 (地址传递)                                    │
+  │    ✓ 返回值 (int/float/void)                                │
+  └─────────────────────────────────────────────────────────────┘
+
+---
+
+  二、问题分解
+
+  面对这个复杂问题，我的思路是分而治之：
+
+  "如何把源代码变成汇编？"
+              ↓
+      拆分成6个子问题
+              ↓
+  ┌─────────────────────────────────────────────────────────┐
+  │  Q1: 如何识别源代码中的单词？     → 词法分析            │
+  │  Q2: 如何理解代码的结构？         → 语法分析            │
+  │  Q3: 如何检查代码的含义正确性？   → 语义分析            │
+  │  Q4: 如何用统一格式表示程序逻辑？ → 中间代码生成        │
+  │  Q5: 如何让程序更高效？           → 代码优化            │
+  │  Q6: 如何生成机器能执行的代码？   → 目标代码生成        │
+  └─────────────────────────────────────────────────────────┘
+
+---
+
+  三、技术选型决策
+
+  3.1 为什么用 Flex + Bison？
+
+  方案对比:
+  ┌──────────────────┬─────────────────┬─────────────────┐
+  │      方案        │      优点       │      缺点       │
+  ├──────────────────┼─────────────────┼─────────────────┤
+  │ 手写词法/语法    │ 完全可控        │ 工作量巨大      │
+  │ 分析器           │ 学习原理透彻    │ 容易出错        │
+  ├──────────────────┼─────────────────┼─────────────────┤
+  │ Flex + Bison     │ 自动生成代码    │ 需要学习工具    │
+  │ (选择此方案) ✓   │ 可靠性高        │ 调试稍复杂      │
+  │                  │ 业界标准        │                 │
+  └──────────────────┴─────────────────┴─────────────────┘
+
+  决策理由:
+
+1. Flex: 用正则表达式定义Token，自动生成DFA状态机
+2. Bison: 用BNF文法定义语法，自动生成LALR(1)分析器
+3. 这两个工具是编译器开发的工业标准，GCC也在使用
+
+  3.2 为什么用三地址码作为中间代码？
+
+  中间代码格式对比:
+  ┌──────────────┬───────────────────────────────────────┐
+  │    格式      │              特点                     │
+  ├──────────────┼───────────────────────────────────────┤
+  │ 抽象语法树   │ 结构复杂，不便于优化                   │
+  │ 三地址码 ✓   │ 格式简单统一，便于优化和代码生成       │
+  │ 四元式       │ 类似三地址码，稍显冗余                 │
+  │ 栈式代码     │ 便于解释执行，但优化困难               │
+  └──────────────┴───────────────────────────────────────┘
+
+  三地址码示例: x = y + z
+
+- 最多3个操作数
+- 每条指令只做一件事
+- 临时变量保存中间结果
+
+  3.3 整体架构图
+
+  ┌─────────────────────────────────────────────────────────────────┐
+  │                        Sys 编译器架构                            │
+  └─────────────────────────────────────────────────────────────────┘
+
+    源代码 (.sy)
+           │
+           ▼
+  ┌─────────────────┐
+  │   Flex 词法器   │ ← lexer.l (正则表达式规则)
+  │   生成 Token    │
+  └────────┬────────┘
+           │ Token流
+           ▼
+  ┌─────────────────┐
+  │  Bison 语法器   │ ← parser.y (BNF文法规则)
+  │   生成 AST      │
+  └────────┬────────┘
+           │ AST
+           ▼
+  ┌─────────────────┐
+  │   语义分析器    │ ← semantic_analyzer.cpp
+  │  符号表+类型检查│
+  └────────┬────────┘
+           │ 带类型AST + 符号表
+           ▼
+  ┌─────────────────┐
+  │  中间代码生成   │ ← code_generator.cpp
+  │   输出 TAC      │
+  └────────┬────────┘
+           │ 三地址码
+           ▼
+  ┌─────────────────┐
+  │   代码优化器    │ ← optimizer.cpp
+  │  常量折叠等     │
+  └────────┬────────┘
+           │ 优化后TAC
+           ▼
+  ┌─────────────────┐
+  │  目标代码生成   │ ← target_codegen.cpp
+  │  输出 x86-64    │
+  └────────┬────────┘
+           │
+           ▼
+      汇编代码 (.s)
+
+---
+
+  四、各模块设计思路
+
+  4.1 词法分析：如何识别单词？
+
+  问题：把字符流 int a = 10; 变成 Token 流
+
+  思路：用正则表达式描述每种Token的模式
+
+  // lexer.l 核心规则
+  "int"           { return KEYWORD_INT; }      // 关键字
+  "while"         { return KEYWORD_WHILE; }
+  "if"            { return KEYWORD_IF; }
+
+  [0-9]+          { yylval.ival = atoi(yytext);
+                    return NUMBER; }            // 整数
+
+  [0-9]+\.[0-9]+  { yylval.fval = atof(yytext);
+                    return FLOAT_CONST; }       // 浮点数
+
+  [a-zA-Z_][a-zA-Z0-9_]*
+                  { yylval.sval = strdup(yytext);
+                    return IDENTIFIER; }        // 标识符
+
+  "+"             { return OP_PLUS; }           // 运算符
+  "<="            { return OP_LE; }             // 双字符运算符
+
+---
+
+  4.2 语法分析：如何理解结构？
+
+  问题：把 Token 流组织成树形结构（AST）
+
+  思路：用 BNF 文法描述语言的语法规则
+
+  // parser.y 核心规则
+
+  // 程序 = 多个声明和函数
+  program : declaration_list function_list
+          ;
+
+  // 函数定义
+  function : type IDENTIFIER '(' params ')' block
+           { $$ = createFuncDef($1, $2, $4, $6); }
+           ;
+
+  // 语句
+  statement : IF '(' expr ')' statement ELSE statement
+            { 
+
+$$
+= createIfElse($3, $5, $7); }
+            | WHILE '(' expr ')' statement
+            {
+$$
+
+ = createWhile($3, $5); }
+            | RETURN expr ';'
+            { $$ = createReturn($2); }
+            ;
+
+  // 表达式 (处理优先级)
+  expr : expr '+' term    { 
+
+$$
+= createBinaryOp("+", $1, $3); }
+       | expr '-' term    {
+$$
+
+ = createBinaryOp("-", $1, $3); }
+       | term
+       ;
+
+  term : term '*' factor  { 
+
+$$
+= createBinaryOp("*", $1, $3); }
+       | term '/' factor  {
+$$
+
+ = createBinaryOp("/", $1, $3); }
+       | factor
+       ;
+
+  优先级处理：通过文法层次实现
+  expr (+ -)  →  低优先级
+    ↓
+  term (* /)  →  高优先级
+    ↓
+  factor      →  最高优先级 (数字、变量、括号表达式)
+
+---
+
+  4.3 语义分析：如何检查含义？
+
+  问题：检查程序的"意义"是否正确
+
+  思路：遍历 AST，用符号表记录信息，执行各种检查
+
+  // 核心数据结构：符号表
+  struct Symbol {
+      string name;        // 变量名
+      Type type;          // 类型 (int/float/array)
+      bool isConst;       // 是否为常量
+      bool isFunction;    // 是否为函数
+      int scopeLevel;     // 作用域层级
+      vector`<Type>` paramTypes;  // 函数参数类型
+  };
+
+  class SymbolTable {
+      vector<map<string, Symbol>> scopes;  // 多层作用域栈
+
+    void enterScope() { scopes.push_back({}); }
+      void exitScope()  { scopes.pop_back(); }
+
+    Symbol* lookup(string name) {
+          // 从内向外查找
+          for (int i = scopes.size()-1; i >= 0; i--) {
+              if (scopes[i].count(name))
+                  return &scopes[i][name];
+          }
+          return nullptr;  // 未找到
+      }
+  };
+
+  检查项清单：
+  void SemanticAnalyzer::check(ASTNode* node) {
+      switch (node->type) {
+          case NODE_VAR_USE:
+              // 检查变量是否声明
+              if (!symbolTable.lookup(node->name))
+                  error("变量未声明: " + node->name);
+              break;
+
+    case NODE_ASSIGN:
+              // 检查是否修改常量
+              Symbol* sym = symbolTable.lookup(node->left->name);
+              if (sym && sym->isConst)
+                  error("不能修改常量");
+              // 检查类型匹配
+              checkTypeMatch(sym->type, getType(node->right));
+              break;
+
+    case NODE_BREAK:
+              // 检查是否在循环内
+              if (loopDepth == 0)
+                  error("break必须在循环内");
+              break;
+      }
+  }
+
+---
+
+  4.4 中间代码生成：如何统一表示？
+
+  问题：把树形AST转换成线性的三地址码
+
+  思路：递归遍历AST，为每种节点生成对应的TAC
+
+  // 表达式代码生成
+  string CodeGenerator::generateExpr(ASTNode* node) {
+      if (node->type == NODE_NUMBER) {
+          return to_string(node->value);  // 直接返回数字
+      }
+
+    if (node->type == NODE_BINARY_OP) {
+          string left = generateExpr(node->left);    // 递归处理左边
+          string right = generateExpr(node->right);  // 递归处理右边
+          string temp = newTemp();                   // 生成临时变量 t1, t2...
+          emit(temp + " = " + left + " " + node->op + " " + right);
+          return temp;
+      }
+  }
+
+  // while循环代码生成
+  void CodeGenerator::generateWhile(ASTNode* node) {
+      string startLabel = newLabel();  // L1
+      string endLabel = newLabel();    // L2
+
+    emit(startLabel + ":");                        // L1:
+      string cond = generateExpr(node->condition);   // 生成条件表达式
+      emit("if " + cond + " == 0 goto " + endLabel); // if cond==0 goto L2
+      generateStmt(node->body);                      // 生成循环体
+      emit("goto " + startLabel);                    // goto L1
+      emit(endLabel + ":");                          // L2:
+  }
+
+  生成过程示例：
+  源代码: c = a + b * 2
+
+  AST:          =
+              /   
+    c     +
+                  /
+    a   *
+                    /
+    b   2
+
+  生成TAC (后序遍历):
+
+1. 处理 b * 2  →  t1 = b * 2
+2. 处理 a + t1 →  t2 = a + t1
+3. 处理 c = t2 →  c = t2
+
+---
+
+  4.5 代码优化：如何提高效率？
+
+  问题：让生成的代码更高效
+
+  思路：在TAC层面进行各种变换
+
+  // 常量折叠：编译时计算常量表达式
+  void Optimizer::constantFolding(Instruction& inst) {
+      // t1 = 3 + 5  →  t1 = 8
+      if (isConstant(inst.arg1) && isConstant(inst.arg2)) {
+          int result = evaluate(inst.arg1, inst.op, inst.arg2);
+          inst.arg1 = to_string(result);
+          inst.op = "";
+          inst.arg2 = "";
+      }
+  }
+
+  // 死代码消除：删除不会执行的代码
+  void Optimizer::deadCodeElimination() {
+      // 标记所有被使用的变量
+      set`<string>` usedVars;
+      for (auto& inst : instructions) {
+          if (isUsed(inst.arg1)) usedVars.insert(inst.arg1);
+          if (isUsed(inst.arg2)) usedVars.insert(inst.arg2);
+      }
+
+    // 删除结果未被使用的指令
+      removeUnused(instructions, usedVars);
+  }
+
+---
+
+  4.6 目标代码生成：如何生成汇编？
+
+  问题：把TAC翻译成x86-64汇编
+
+  思路：为每种TAC指令模式编写翻译规则
+
+  void TargetCodeGen::translateInstruction(Instruction& inst) {
+      if (inst.op == "=") {
+          // x = y
+          emit("movl " + getLocation(inst.arg1) + ", %eax");
+          emit("movl %eax, " + getLocation(inst.result));
+      }
+      else if (inst.op == "+") {
+          // x = y + z
+          emit("movl " + getLocation(inst.arg1) + ", %eax");
+          emit("addl " + getLocation(inst.arg2) + ", %eax");
+          emit("movl %eax, " + getLocation(inst.result));
+      }
+      else if (inst.op == "if_goto") {
+          // if x == 0 goto L
+          emit("movl " + getLocation(inst.arg1) + ", %eax");
+          emit("cmpl $0, %eax");
+          emit("je " + inst.label);
+      }
+  }
+
+  // 变量位置映射
+  string getLocation(string var) {
+      if (isNumber(var)) return "$" + var;        // 立即数: $10
+      if (isGlobal(var)) return var + "(%rip)";   // 全局: g(%rip)
+      return to_string(getOffset(var)) + "(%rbp)"; // 局部: -4(%rbp)
+  }
+
+  栈帧布局设计：
+  高地址
+      ┌──────────────────┐
+      │    返回地址       │  ← 调用时自动压入
+      ├──────────────────┤
+      │    旧 RBP        │  ← push rbp
+      ├──────────────────┤ ← RBP 指向这里
+      │    局部变量 a     │  [rbp-4]
+      ├──────────────────┤
+      │    局部变量 b     │  [rbp-8]
+      ├──────────────────┤
+      │    临时变量 t1    │  [rbp-12]
+      └──────────────────┘ ← RSP
+  低地址
+
+---
+
+  五、解决问题的关键难点
+
+| 难点         | 解决方案                                |
+| ------------ | --------------------------------------- |
+| 运算符优先级 | 通过文法层次处理 (expr→term→factor)   |
+| 作用域管理   | 符号表用栈结构，进入作用域push，退出pop |
+| 类型转换     | int→float隐式提升，float→int显式警告  |
+| 数组地址计算 | a[i][j] → base + (i*列数+j)*元素大小   |
+| 控制流跳转   | 生成标签，用goto/if-goto跳转            |
+| 函数调用     | 参数通过寄存器/栈传递，返回值用RAX      |
+
+---
+
+  六、总结：解决思路
+
+1. 需求分析 → 明确要支持的语言特性
+   ↓
+2. 问题分解 → 拆分成6个独立模块
+   ↓
+3. 技术选型 → Flex/Bison/C++/x86-64
+   ↓
+4. 逐模块实现 → 词法→语法→语义→IR→优化→目标
+   ↓
+5. 测试验证 → 设计测试用例覆盖各种情况
+   ↓
+6. 集成调试 → GUI界面展示完整流程
